@@ -8,7 +8,7 @@
  *   entity: light.playbulb_candle
  */
 
-const PBC_VERSION = "1.2.0";
+const PBC_VERSION = "1.3.0";
 const PBC_WARM_WHITE = [255, 196, 120]; // Farbton des Weißkanals der Kerze
 
 const pbcClamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -57,20 +57,18 @@ const PBC_STYLE = `
   .inner { opacity: var(--flame); }
   .flame { fill: url(#flameGrad); opacity: var(--flame);
            transform-box: fill-box; transform-origin: 50% 100%; }
-  .core  { fill: #fff; opacity: .85;
-           transform-box: fill-box; transform-origin: 50% 100%; }
+  .core  { fill: #fff; opacity: .75; filter: blur(1.5px);
+           transform-box: fill-box; transform-origin: 50% 50%; }
 
-  .root.fx-candle .flame { animation: pbc-flicker 1.3s ease-in-out infinite; }
-  .root.fx-candle .core  { animation: pbc-flicker 1.1s ease-in-out infinite reverse; }
+  .root.fx-candle .core  { animation: pbc-flicker 1.1s ease-in-out infinite; }
   .root.fx-candle .inner { animation: pbc-glowflicker 1.7s ease-in-out infinite; }
   .root.fx-pulse  .lit   { animation: pbc-pulse 1.8s ease-in-out infinite; }
   .root.fx-flash  .lit   { animation: pbc-flash .9s linear infinite; }
   @keyframes pbc-flicker {
-    0%,100% { transform: scale(1,1) rotate(0); }
-    15% { transform: scale(.92,1.08) rotate(-2deg); }
-    35% { transform: scale(1.04,.94) rotate(1.5deg); }
-    55% { transform: scale(.96,1.05) rotate(-1deg); }
-    75% { transform: scale(1.03,.96) rotate(2deg); }
+    0%,100% { transform: scale(1,1); opacity: .75; }
+    20% { transform: scale(1.15,.9); opacity: .55; }
+    45% { transform: scale(.9,1.1); opacity: .85; }
+    70% { transform: scale(1.08,.95); opacity: .6; }
   }
   @keyframes pbc-glowflicker {
     0%,100% { opacity: var(--flame); } 30% { opacity: calc(var(--flame) * .8); }
@@ -166,98 +164,113 @@ const PBC_STYLE = `
   .hidden { display: none !important; }
 `;
 
-const PBC_GLASS =
-  "M24 30 C17 75 17 122 32 152 C38 163 46 170 56 172 L144 172 C154 170 162 163 168 152 " +
-  "C183 122 183 75 176 30 A76 9 0 0 0 24 30 Z";
+// Umriss nach Original-Fotos der MIPOW Playbulb Candle (BTL300):
+// offener, bauchiger Milchglas-Becher auf abgerundetem weißem Sockel.
+const PBC_CUP =
+  "M24 20 C14 50 6 95 8 130 C9 150 10 163 14 174 C35 188 165 188 186 174 " +
+  "C190 163 191 150 192 130 C194 95 186 50 176 20 A76 12 0 0 0 24 20 Z";
 const PBC_BASE =
-  "M28 161 C60 170 140 170 172 161 C175 180 168 196 148 202 C134 205 118 206 100 206 " +
-  "C82 206 66 205 52 202 C32 196 25 180 28 161 Z";
+  "M14 174 C35 188 165 188 186 174 C182 198 168 215 148 221 " +
+  "C130 224.5 70 224.5 52 221 C32 215 18 198 14 174 Z";
 
 const PBC_SVG = `
-<svg viewBox="0 0 200 215" role="img" aria-label="Playbulb Candle">
+<svg viewBox="0 0 200 232" role="img" aria-label="Playbulb Candle">
   <defs>
     <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
       <stop offset="0"   style="stop-color:var(--c);stop-opacity:.7"/>
       <stop offset=".5"  style="stop-color:var(--c);stop-opacity:.25"/>
       <stop offset="1"   style="stop-color:var(--c);stop-opacity:0"/>
     </radialGradient>
-    <linearGradient id="glassGrad" x1="0" x2="1" y1="0" y2="0">
-      <stop offset="0"   stop-color="#d4d7db"/>
-      <stop offset=".3"  stop-color="#f3f4f5"/>
-      <stop offset=".65" stop-color="#eceef0"/>
-      <stop offset="1"   stop-color="#c8ccd1"/>
+    <linearGradient id="cupGrad" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0"   stop-color="#e2e4e7"/>
+      <stop offset=".28" stop-color="#fafafb"/>
+      <stop offset=".62" stop-color="#f3f4f5"/>
+      <stop offset="1"   stop-color="#d5d8dc"/>
     </linearGradient>
     <linearGradient id="tintGrad" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0"   style="stop-color:var(--c);stop-opacity:.55"/>
-      <stop offset=".55" style="stop-color:var(--c);stop-opacity:.85"/>
-      <stop offset="1"   style="stop-color:var(--c);stop-opacity:1"/>
+      <stop offset="0"   style="stop-color:var(--c);stop-opacity:.85"/>
+      <stop offset=".5"  style="stop-color:var(--c);stop-opacity:1"/>
+      <stop offset="1"   style="stop-color:var(--c);stop-opacity:.92"/>
     </linearGradient>
-    <radialGradient id="innerGrad" cx="50%" cy="62%" r="60%">
-      <stop offset="0"   stop-color="#fff" stop-opacity=".95"/>
-      <stop offset=".2"  style="stop-color:var(--c);stop-opacity:.9"/>
-      <stop offset=".6"  style="stop-color:var(--c);stop-opacity:.3"/>
+    <radialGradient id="innerGrad" cx="50%" cy="42%" r="62%">
+      <stop offset="0"   stop-color="#fff" stop-opacity=".32"/>
+      <stop offset=".4"  style="stop-color:var(--c);stop-opacity:.35"/>
       <stop offset="1"   style="stop-color:var(--c);stop-opacity:0"/>
     </radialGradient>
     <linearGradient id="shadeGrad" x1="0" x2="1" y1="0" y2="0">
-      <stop offset="0"   stop-color="#000" stop-opacity=".16"/>
-      <stop offset=".22" stop-color="#fff" stop-opacity=".16"/>
-      <stop offset=".5"  stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1"   stop-color="#000" stop-opacity=".2"/>
+      <stop offset="0"   stop-color="#000" stop-opacity=".22"/>
+      <stop offset=".16" stop-color="#fff" stop-opacity=".12"/>
+      <stop offset=".45" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".8"  stop-color="#000" stop-opacity=".04"/>
+      <stop offset="1"   stop-color="#000" stop-opacity=".26"/>
     </linearGradient>
+    <linearGradient id="rimGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#e9ebee"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="openGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#e3e5e8"/>
+      <stop offset="1" stop-color="#b3b7bd"/>
+    </linearGradient>
+    <radialGradient id="flameGrad" cx="50%" cy="100%" r="80%">
+      <stop offset="0"   stop-color="#fff"/>
+      <stop offset=".4"  style="stop-color:var(--c);stop-opacity:1"/>
+      <stop offset="1"   style="stop-color:var(--c);stop-opacity:.55"/>
+    </radialGradient>
     <linearGradient id="baseGrad" x1="0" x2="1" y1="0" y2="0">
       <stop offset="0"   stop-color="#cfd2d6"/>
-      <stop offset=".3"  stop-color="#fafafa"/>
-      <stop offset=".65" stop-color="#f1f2f3"/>
-      <stop offset="1"   stop-color="#bfc3c8"/>
+      <stop offset=".3"  stop-color="#fbfbfc"/>
+      <stop offset=".65" stop-color="#f2f3f4"/>
+      <stop offset="1"   stop-color="#bec2c7"/>
     </linearGradient>
-    <radialGradient id="flameGrad" cx="50%" cy="80%" r="75%">
-      <stop offset="0"   stop-color="#fff"/>
-      <stop offset=".5"  style="stop-color:var(--c);stop-opacity:.95"/>
-      <stop offset="1"   style="stop-color:var(--c);stop-opacity:.2"/>
-    </radialGradient>
-    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="1.4"/>
-    </filter>
-    <clipPath id="glassClip"><path d="${PBC_GLASS}"/></clipPath>
+    <linearGradient id="baseShade" x1="0" x2="0" y1="0" y2="1">
+      <stop offset=".35" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1"   stop-color="#000" stop-opacity=".14"/>
+    </linearGradient>
+    <linearGradient id="spillGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0"   style="stop-color:var(--c);stop-opacity:.45"/>
+      <stop offset=".55" style="stop-color:var(--c);stop-opacity:0"/>
+    </linearGradient>
+    <clipPath id="cupClip"><path d="${PBC_CUP}"/></clipPath>
   </defs>
 
-  <!-- Lichtschein -->
-  <g class="lit"><circle class="glow" cx="100" cy="105" r="112" fill="url(#glowGrad)"/></g>
-  <ellipse cx="100" cy="207" rx="74" ry="6" fill="#000" opacity=".15"/>
+  <!-- Lichtschein + Bodenschatten -->
+  <g class="lit"><circle class="glow" cx="100" cy="105" r="118" fill="url(#glowGrad)"/></g>
+  <ellipse cx="100" cy="224" rx="64" ry="5" fill="#000" opacity=".16"/>
 
   <!-- Milchglas-Becher -->
-  <path d="${PBC_GLASS}" fill="url(#glassGrad)" opacity=".92"/>
+  <path d="${PBC_CUP}" fill="url(#cupGrad)"/>
   <g class="lit">
-    <path class="tint" d="${PBC_GLASS}" fill="url(#tintGrad)"/>
-    <g clip-path="url(#glassClip)">
-      <ellipse class="inner" cx="100" cy="122" rx="95" ry="100" fill="url(#innerGrad)"/>
+    <path class="tint" d="${PBC_CUP}" fill="url(#tintGrad)"/>
+    <g clip-path="url(#cupClip)">
+      <ellipse class="inner" cx="100" cy="100" rx="96" ry="98" fill="url(#innerGrad)"/>
     </g>
   </g>
+  <path d="${PBC_CUP}" fill="url(#shadeGrad)"/>
+  <!-- Glanzlichter -->
+  <path d="M38 32 C28 65 24 100 25 132" fill="none" stroke="#fff" stroke-opacity=".12"
+        stroke-width="9" stroke-linecap="round"/>
+  <path d="M163 31 C171 60 175 95 175 125 C175 145 173 160 170 171" fill="none" stroke="#fff"
+        stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>
 
-  <!-- LED-Teelicht im Inneren -->
-  <path d="M70 146 V152 C70 156 84 159 100 159 C116 159 130 156 130 152 V146 Z" fill="#fff" opacity=".35"/>
-  <ellipse cx="100" cy="146" rx="30" ry="5" fill="#fff" opacity=".55"/>
-  <path d="M97 146 V134 C97 132 103 132 103 134 V146 Z" fill="#fff" opacity=".45"/>
-  <g class="lit" filter="url(#soft)">
-    <path class="flame" d="M100 92 C106 104 115 114 113 126 C112 134 107 139 100 139 C93 139 88 134 87 126 C85 114 94 104 100 92 Z"/>
-    <path class="core"  d="M100 112 C103.5 118 107.5 123 106.5 129 C106 133 103.5 136 100 136 C96.5 136 94 133 93.5 129 C92.5 123 96.5 118 100 112 Z"/>
+  <!-- Öffnung oben: Rand + Innenwand mit LED-Licht -->
+  <ellipse cx="100" cy="20" rx="76" ry="12" fill="url(#rimGrad)"/>
+  <g class="lit"><ellipse class="tint" cx="100" cy="20" rx="76" ry="12" style="fill:var(--c)" opacity=".5"/></g>
+  <ellipse cx="100" cy="21" rx="71" ry="10.2" fill="url(#openGrad)"/>
+  <g class="lit">
+    <ellipse class="flame" cx="100" cy="21" rx="71" ry="10.2"/>
+    <ellipse class="core" cx="100" cy="28.5" rx="22" ry="2.6"/>
   </g>
-
-  <!-- Glas-Schattierung, Glanz, Öffnung -->
-  <path d="${PBC_GLASS}" fill="url(#shadeGrad)"/>
-  <path d="M36 44 C32 80 33 116 42 142" fill="none" stroke="#fff" stroke-opacity=".35"
-        stroke-width="5" stroke-linecap="round"/>
-  <ellipse cx="100" cy="30" rx="76" ry="9" fill="#fff" fill-opacity=".18"
-           stroke="#fff" stroke-opacity=".7" stroke-width="1.2"/>
-  <path d="M28 33 C60 41 140 41 172 33" fill="none" stroke="#000" stroke-opacity=".06" stroke-width="1"/>
+  <ellipse cx="100" cy="20" rx="76" ry="12" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="1"/>
 
   <!-- Sockel -->
   <path d="${PBC_BASE}" fill="url(#baseGrad)"/>
-  <path d="M28 161 C60 170 140 170 172 161" fill="none" stroke="#fff" stroke-width="1.5" stroke-opacity=".9"/>
-  <path d="M30 186 C36 196 50 202 70 204 L130 204 C150 202 164 196 170 186 C166 198 152 204 132 205.5
-           L68 205.5 C48 204 34 198 30 186 Z" fill="#000" opacity=".06"/>
-  <text x="100" y="187" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
-        font-size="9.5" font-weight="600" letter-spacing="1.6" fill="#6f747b">PLAYBULB</text>
+  <path d="${PBC_BASE}" fill="url(#baseShade)"/>
+  <g class="lit"><path class="tint" d="${PBC_BASE}" fill="url(#spillGrad)"/></g>
+  <path d="M14 174 C35 188 165 188 186 174" fill="none" stroke="#000" stroke-opacity=".14" stroke-width="1"/>
+  <path d="M16 177 C37 190.5 163 190.5 184 177" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="1"/>
+  <text x="100" y="206" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
+        font-size="8.5" fill="#5f646b"><tspan font-weight="700" letter-spacing=".5">PLAYBULB</tspan><tspan dx="3">candle</tspan></text>
 </svg>`;
 
 class PlaybulbCandleCard extends HTMLElement {
@@ -594,7 +607,7 @@ class PlaybulbCandleCard extends HTMLElement {
     const rgb = this._rgb(a);
     const rs = this._root.style;
     rs.setProperty("--glow", (0.3 + 0.7 * bri).toFixed(3));
-    rs.setProperty("--tint", (0.3 + 0.55 * bri).toFixed(3));
+    rs.setProperty("--tint", (0.45 + 0.5 * bri).toFixed(3));
     rs.setProperty("--flame", (0.55 + 0.45 * bri).toFixed(3));
 
     if (fx === "rainbow") {

@@ -8,20 +8,8 @@
  *   entity: light.playbulb_candle
  */
 
-const PBC_VERSION = "1.1.0";
+const PBC_VERSION = "1.2.0";
 const PBC_WARM_WHITE = [255, 196, 120]; // Farbton des Weißkanals der Kerze
-
-const PBC_SWATCHES = [
-  { name: "Warmweiß", rgb: PBC_WARM_WHITE, white: true },
-  { name: "Rot", rgb: [255, 30, 30] },
-  { name: "Orange", rgb: [255, 120, 0] },
-  { name: "Gelb", rgb: [255, 215, 0] },
-  { name: "Grün", rgb: [20, 220, 70] },
-  { name: "Türkis", rgb: [0, 210, 230] },
-  { name: "Blau", rgb: [30, 80, 255] },
-  { name: "Violett", rgb: [150, 40, 255] },
-  { name: "Pink", rgb: [255, 40, 160] },
-];
 
 const pbcClamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const pbcHex = (rgb) =>
@@ -36,30 +24,29 @@ function pbcHsv(h, s, v) {
   return [f(5) * 255, f(3) * 255, f(1) * 255];
 }
 
-function pbcRgbToHue([r, g, b]) {
+// RGB -> [Farbton 0-360, Sättigung 0-1]
+function pbcRgbToHs([r, g, b]) {
   const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-  if (d === 0) return 0;
+  if (max <= 0 || d === 0) return [0, 0];
   let h;
   if (max === r) h = ((g - b) / d) % 6;
   else if (max === g) h = (b - r) / d + 2;
   else h = (r - g) / d + 4;
-  return Math.round((h * 60 + 360) % 360);
+  return [(h * 60 + 360) % 360, d / max];
 }
-
-const pbcDist = (a, b) =>
-  Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
 
 const PBC_STYLE = `
   :host { display: block; }
-  ha-card { padding: 14px 16px 16px; overflow: hidden; }
+  ha-card { padding: 16px; overflow: hidden; height: 100%; box-sizing: border-box; }
   .root {
     --c: rgb(255,196,120); --glow: 0; --tint: 0; --flame: 1;
-    --pbc-track: color-mix(in srgb, var(--primary-text-color, #000) 10%, transparent);
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    --sc: var(--c);
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
   }
+  .root.off { --sc: var(--state-inactive-color, #9e9e9e); }
   .root.unavail { opacity: .5; }
   .lampbox {
-    width: 100%; max-width: 200px; cursor: pointer; user-select: none;
+    width: 100%; max-width: 210px; cursor: pointer; user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
   svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -70,7 +57,7 @@ const PBC_STYLE = `
   .inner { opacity: var(--flame); }
   .flame { fill: url(#flameGrad); opacity: var(--flame);
            transform-box: fill-box; transform-origin: 50% 100%; }
-  .core  { fill: #fff; opacity: .8;
+  .core  { fill: #fff; opacity: .85;
            transform-box: fill-box; transform-origin: 50% 100%; }
 
   .root.fx-candle .flame { animation: pbc-flicker 1.3s ease-in-out infinite; }
@@ -95,204 +82,182 @@ const PBC_STYLE = `
   .info { text-align: center; }
   .name { font-size: 1.1em; font-weight: 500; color: var(--primary-text-color); }
   .state { font-size: .9em; color: var(--secondary-text-color); }
-  .row { width: 100%; display: flex; align-items: center; gap: 10px; margin-top: 2px; }
-  .row ha-icon { color: var(--secondary-text-color); --mdc-icon-size: 20px; flex: none; }
-  .pct {
-    flex: none; min-width: 3.4em; text-align: center; font-size: .85em; font-weight: 500;
-    padding: 4px 8px; border-radius: 999px; background: var(--pbc-track);
-    color: var(--primary-text-color); font-variant-numeric: tabular-nums;
-  }
 
-  /* --- Schieberegler --- */
-  .slider {
-    --p: 0; --thumb: #fff; --ring: var(--c);
-    -webkit-appearance: none; appearance: none; flex: 1; min-width: 0;
-    height: 18px; margin: 0; border-radius: 999px; cursor: pointer; outline: none;
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--c) 35%, transparent), var(--c))
-        0 0 / calc(11px + (100% - 22px) * var(--p)) 100% no-repeat,
-      var(--pbc-track);
-    box-shadow: inset 0 1px 2px rgba(0,0,0,.12);
-  }
-  .slider.hue {
-    background: linear-gradient(90deg,
-      hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%),
-      hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%));
-    --ring: #fff;
-  }
-  .slider::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none; width: 26px; height: 26px; border-radius: 50%;
-    background: var(--thumb); border: 3px solid var(--ring);
-    box-shadow: 0 2px 6px rgba(0,0,0,.3); transition: transform .15s ease;
-  }
-  .slider::-moz-range-thumb {
-    width: 20px; height: 20px; border-radius: 50%;
-    background: var(--thumb); border: 3px solid var(--ring);
-    box-shadow: 0 2px 6px rgba(0,0,0,.3); transition: transform .15s ease;
-  }
-  .slider::-moz-range-track { background: transparent; }
-  .slider:hover::-webkit-slider-thumb { transform: scale(1.08); }
-  .slider:active::-webkit-slider-thumb { transform: scale(1.18); }
-  .slider:hover::-moz-range-thumb { transform: scale(1.08); }
-  .slider:active::-moz-range-thumb { transform: scale(1.18); }
-  .slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 40%, transparent); }
-  .slider:disabled { cursor: default; opacity: .5; }
-
-  /* --- Effekt-Auswahl --- */
-  select {
-    flex: 1; min-width: 0; padding: 9px 36px 9px 14px; font: inherit; font-size: .95em;
-    color: var(--primary-text-color); background-color: var(--pbc-track);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 10px center; background-size: 20px;
-    border: none; border-radius: 999px; -webkit-appearance: none; appearance: none;
-    cursor: pointer; outline: none;
-  }
-  select:focus-visible { box-shadow: 0 0 0 2px var(--c); }
-  select option { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
-
-  /* --- Farbwahl --- */
-  .colors { width: 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
-  .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-  .sw {
-    position: relative; width: 30px; height: 30px; flex: none; padding: 0; margin: 0;
-    border: none; border-radius: 50%; cursor: pointer; background: var(--sw);
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,.12), 0 1px 3px rgba(0,0,0,.18);
-    transition: transform .15s ease, box-shadow .2s ease;
+  /* --- Helligkeit: Stil wie ha-control-slider (Kachel-Feature) --- */
+  .csw { position: relative; width: 100%; }
+  .cs {
+    --p: 0; position: relative; height: 42px; border-radius: 12px; overflow: hidden;
+    cursor: pointer; outline: none; touch-action: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  .sw:hover { transform: scale(1.12); }
-  .sw:active { transform: scale(.94); }
-  .sw.white { background: radial-gradient(circle at 35% 35%, #fff, var(--sw) 75%); }
-  .sw.active {
-    box-shadow: 0 0 0 2px var(--card-background-color, #fff), 0 0 0 4px var(--sw),
-                0 2px 8px color-mix(in srgb, var(--sw) 60%, transparent);
+  .cs::before {
+    content: ""; position: absolute; inset: 0; background: var(--sc); opacity: .2;
+    transition: background-color .18s ease-in-out;
   }
-  .sw.active::after {
-    content: ""; position: absolute; inset: 0; margin: auto; width: 8px; height: 8px;
-    border-radius: 50%; background: #fff; box-shadow: 0 0 2px rgba(0,0,0,.4);
+  .cs-bar {
+    position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--p) * 100%);
+    background: var(--sc); transition: width .18s ease-in-out, background-color .18s ease-in-out;
   }
-  .sw.custom {
-    background: conic-gradient(hsl(0 100% 55%), hsl(60 100% 55%), hsl(120 100% 50%),
-      hsl(180 100% 50%), hsl(240 100% 60%), hsl(300 100% 55%), hsl(360 100% 55%));
-    overflow: hidden;
+  .cs.drag .cs-bar { transition: background-color .18s ease-in-out; }
+  .cs-bar::after {
+    content: ""; position: absolute; top: 0; bottom: 0; right: 5px; margin: auto;
+    width: 4px; height: 50%; border-radius: 4px; background: #fff; opacity: .9;
   }
-  .sw.custom::before {
-    content: "+"; position: absolute; inset: 4px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
+  .cs[data-zero] .cs-bar::after { display: none; }
+  .cs:focus-visible { box-shadow: 0 0 0 2px var(--sc); }
+  .cs-tip {
+    position: absolute; bottom: calc(100% + 6px); left: calc(var(--p) * 100%);
+    transform: translateX(-50%); padding: 4px 10px; border-radius: 10px; pointer-events: none;
+    font-size: 14px; line-height: 20px; white-space: nowrap;
     background: var(--card-background-color, #fff); color: var(--primary-text-color);
-    font-size: 17px; line-height: 1; font-weight: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25); opacity: 0; transition: opacity .18s ease;
   }
-  .sw.custom.active { --sw: var(--c); }
-  .sw.custom.active::before { background: var(--c); content: ""; }
-  .sw.custom input {
-    position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0;
-    padding: 0; border: none; cursor: pointer;
+  .csw.tip .cs-tip { opacity: 1; }
+
+  /* --- Farbrad: Stil wie ha-hs-color-picker --- */
+  .wheel {
+    --x: 50%; --y: 50%; position: relative; width: 100%; max-width: 240px; aspect-ratio: 1;
+    border-radius: 50%; cursor: pointer; touch-action: none; user-select: none; outline: none;
+    background:
+      radial-gradient(circle closest-side, #fff, rgba(255,255,255,0)),
+      conic-gradient(from 90deg,
+        hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%),
+        hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%));
+    -webkit-tap-highlight-color: transparent;
   }
-  .disabled .sw { pointer-events: none; opacity: .5; }
+  .mk {
+    position: absolute; left: var(--x); top: var(--y); width: 28px; height: 28px;
+    transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+    background: var(--mc, #fff); border: 3px solid #fff; box-sizing: border-box;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.15), 0 2px 6px rgba(0,0,0,.35);
+    transition: width .15s ease, height .15s ease;
+  }
+  .wheel.drag .mk { width: 40px; height: 40px; }
+  .wheel:focus-visible .mk { box-shadow: 0 0 0 2px var(--primary-color, #03a9f4), 0 2px 6px rgba(0,0,0,.35); }
+  .wheel.nomk .mk { display: none; }
+  .wheel.disabled { pointer-events: none; opacity: .5; }
+
+  /* --- Effekt: Stil wie ha-select (filled) --- */
+  .sel {
+    position: relative; width: 100%; box-sizing: border-box;
+    background: var(--input-fill-color, color-mix(in srgb, var(--primary-text-color, #000) 6%, transparent));
+    border-radius: 4px 4px 0 0;
+    border-bottom: 1px solid var(--input-idle-line-color, rgba(0,0,0,.42));
+  }
+  .sel:focus-within { border-bottom: 2px solid var(--primary-color, #03a9f4); }
+  .sel label {
+    position: absolute; left: 16px; top: 8px; font-size: 12px; line-height: 16px;
+    color: var(--secondary-text-color); pointer-events: none;
+  }
+  .sel:focus-within label { color: var(--primary-color, #03a9f4); }
+  .sel::after {
+    content: ""; position: absolute; right: 16px; top: 50%; margin-top: -2px;
+    border: 5px solid transparent; border-top-color: var(--secondary-text-color);
+    border-bottom: 0; pointer-events: none;
+  }
+  .sel select {
+    display: block; width: 100%; height: 56px; padding: 22px 40px 6px 16px; margin: 0;
+    font: inherit; font-size: 16px; color: var(--primary-text-color);
+    background: transparent; border: none; outline: none; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+  }
+  .sel select option { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
+  .sel select:disabled { cursor: default; opacity: .6; }
   .hidden { display: none !important; }
 `;
 
+const PBC_GLASS =
+  "M24 30 C17 75 17 122 32 152 C38 163 46 170 56 172 L144 172 C154 170 162 163 168 152 " +
+  "C183 122 183 75 176 30 A76 9 0 0 0 24 30 Z";
+const PBC_BASE =
+  "M28 161 C60 170 140 170 172 161 C175 180 168 196 148 202 C134 205 118 206 100 206 " +
+  "C82 206 66 205 52 202 C32 196 25 180 28 161 Z";
+
 const PBC_SVG = `
-<svg viewBox="0 0 200 250" role="img" aria-label="Playbulb Candle">
+<svg viewBox="0 0 200 215" role="img" aria-label="Playbulb Candle">
   <defs>
     <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
-      <stop offset="0"   style="stop-color:var(--c);stop-opacity:.75"/>
-      <stop offset=".45" style="stop-color:var(--c);stop-opacity:.28"/>
+      <stop offset="0"   style="stop-color:var(--c);stop-opacity:.7"/>
+      <stop offset=".5"  style="stop-color:var(--c);stop-opacity:.25"/>
       <stop offset="1"   style="stop-color:var(--c);stop-opacity:0"/>
     </radialGradient>
-    <linearGradient id="bodyGrad" x1="0" x2="1" y1="0" y2="0">
-      <stop offset="0"   stop-color="#d9dbdf"/>
-      <stop offset=".3"  stop-color="#fdfdfd"/>
-      <stop offset=".6"  stop-color="#f4f5f6"/>
-      <stop offset="1"   stop-color="#c3c7cc"/>
-    </linearGradient>
-    <linearGradient id="shadeGrad" x1="0" x2="1" y1="0" y2="0">
-      <stop offset="0"   stop-color="#000" stop-opacity=".14"/>
-      <stop offset=".3"  stop-color="#fff" stop-opacity=".18"/>
-      <stop offset=".55" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1"   stop-color="#000" stop-opacity=".2"/>
+    <linearGradient id="glassGrad" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0"   stop-color="#d4d7db"/>
+      <stop offset=".3"  stop-color="#f3f4f5"/>
+      <stop offset=".65" stop-color="#eceef0"/>
+      <stop offset="1"   stop-color="#c8ccd1"/>
     </linearGradient>
     <linearGradient id="tintGrad" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0"   style="stop-color:var(--c);stop-opacity:1"/>
-      <stop offset=".6"  style="stop-color:var(--c);stop-opacity:.55"/>
-      <stop offset="1"   style="stop-color:var(--c);stop-opacity:.2"/>
+      <stop offset="0"   style="stop-color:var(--c);stop-opacity:.55"/>
+      <stop offset=".55" style="stop-color:var(--c);stop-opacity:.85"/>
+      <stop offset="1"   style="stop-color:var(--c);stop-opacity:1"/>
     </linearGradient>
-    <radialGradient id="innerGrad" cx="50%" cy="20%" r="75%">
-      <stop offset="0"   stop-color="#fff" stop-opacity=".9"/>
-      <stop offset=".18" style="stop-color:var(--c);stop-opacity:.95"/>
-      <stop offset=".6"  style="stop-color:var(--c);stop-opacity:.35"/>
+    <radialGradient id="innerGrad" cx="50%" cy="62%" r="60%">
+      <stop offset="0"   stop-color="#fff" stop-opacity=".95"/>
+      <stop offset=".2"  style="stop-color:var(--c);stop-opacity:.9"/>
+      <stop offset=".6"  style="stop-color:var(--c);stop-opacity:.3"/>
       <stop offset="1"   style="stop-color:var(--c);stop-opacity:0"/>
     </radialGradient>
-    <linearGradient id="topGrad" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0" stop-color="#eceef0"/>
-      <stop offset="1" stop-color="#ffffff"/>
+    <linearGradient id="shadeGrad" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0"   stop-color="#000" stop-opacity=".16"/>
+      <stop offset=".22" stop-color="#fff" stop-opacity=".16"/>
+      <stop offset=".5"  stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1"   stop-color="#000" stop-opacity=".2"/>
     </linearGradient>
-    <radialGradient id="hollowGrad" cx="50%" cy="25%" r="80%">
-      <stop offset="0" stop-color="#b9bdc3"/>
-      <stop offset="1" stop-color="#e6e8eb"/>
-    </radialGradient>
-    <radialGradient id="hollowLit" cx="50%" cy="60%" r="60%">
-      <stop offset="0"  stop-color="#fff"/>
-      <stop offset=".35" style="stop-color:var(--c)"/>
-      <stop offset="1"  style="stop-color:var(--c);stop-opacity:.5"/>
-    </radialGradient>
+    <linearGradient id="baseGrad" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0"   stop-color="#cfd2d6"/>
+      <stop offset=".3"  stop-color="#fafafa"/>
+      <stop offset=".65" stop-color="#f1f2f3"/>
+      <stop offset="1"   stop-color="#bfc3c8"/>
+    </linearGradient>
     <radialGradient id="flameGrad" cx="50%" cy="80%" r="75%">
       <stop offset="0"   stop-color="#fff"/>
-      <stop offset=".45" style="stop-color:var(--c);stop-opacity:.95"/>
-      <stop offset="1"   style="stop-color:var(--c);stop-opacity:.15"/>
+      <stop offset=".5"  style="stop-color:var(--c);stop-opacity:.95"/>
+      <stop offset="1"   style="stop-color:var(--c);stop-opacity:.2"/>
     </radialGradient>
     <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="1.6"/>
+      <feGaussianBlur stdDeviation="1.4"/>
     </filter>
-    <clipPath id="bodyClip">
-      <path d="M50 70 V216 C50 224 72 230 100 230 C128 230 150 224 150 216 V70 Z"/>
-    </clipPath>
+    <clipPath id="glassClip"><path d="${PBC_GLASS}"/></clipPath>
   </defs>
 
   <!-- Lichtschein -->
-  <g class="lit"><circle class="glow" cx="100" cy="100" r="102" fill="url(#glowGrad)"/></g>
-  <ellipse cx="100" cy="232" rx="60" ry="7" fill="#000" opacity=".14"/>
+  <g class="lit"><circle class="glow" cx="100" cy="105" r="112" fill="url(#glowGrad)"/></g>
+  <ellipse cx="100" cy="207" rx="74" ry="6" fill="#000" opacity=".15"/>
 
-  <!-- Zylinderkörper -->
-  <path d="M50 70 V216 C50 224 72 230 100 230 C128 230 150 224 150 216 V70 Z" fill="url(#bodyGrad)"/>
+  <!-- Milchglas-Becher -->
+  <path d="${PBC_GLASS}" fill="url(#glassGrad)" opacity=".92"/>
   <g class="lit">
-    <path class="tint" d="M50 70 V216 C50 224 72 230 100 230 C128 230 150 224 150 216 V70 Z" fill="url(#tintGrad)"/>
-    <g clip-path="url(#bodyClip)">
-      <ellipse class="inner" cx="100" cy="112" rx="64" ry="96" fill="url(#innerGrad)"/>
+    <path class="tint" d="${PBC_GLASS}" fill="url(#tintGrad)"/>
+    <g clip-path="url(#glassClip)">
+      <ellipse class="inner" cx="100" cy="122" rx="95" ry="100" fill="url(#innerGrad)"/>
     </g>
   </g>
-  <path d="M50 70 V216 C50 224 72 230 100 230 C128 230 150 224 150 216 V70 Z" fill="url(#shadeGrad)"/>
-  <!-- Bodenkante -->
-  <path d="M50 211 V216 C50 224 72 230 100 230 C128 230 150 224 150 216 V211 C150 219 128 225 100 225 C72 225 50 219 50 211 Z"
-        fill="#000" opacity=".07"/>
 
-  <!-- Geschmolzener Wachsrand mit Tropfen -->
-  <path d="M50 70 A50 12 0 0 0 150 70 L150 76 C150 82 144 86 137 88 C135 96 134 104 131 104 C128 104 127 97 126 91
-           C117 93 109 94 100 94 C93 94 88 93 82 92 C81 101 79 112 75 112 C71 112 70 101 69 90 C59 87 50 82 50 76 Z"
-        fill="url(#bodyGrad)" stroke="#000" stroke-opacity=".07" stroke-width="1"/>
-  <g class="lit">
-    <path class="tint" d="M50 70 A50 12 0 0 0 150 70 L150 76 C150 82 144 86 137 88 C135 96 134 104 131 104 C128 104 127 97 126 91
-           C117 93 109 94 100 94 C93 94 88 93 82 92 C81 101 79 112 75 112 C71 112 70 101 69 90 C59 87 50 82 50 76 Z"
-          fill="url(#tintGrad)"/>
-  </g>
-  <path d="M50 70 A50 12 0 0 0 150 70 L150 76 C150 82 144 86 137 88 C135 96 134 104 131 104 C128 104 127 97 126 91
-           C117 93 109 94 100 94 C93 94 88 93 82 92 C81 101 79 112 75 112 C71 112 70 101 69 90 C59 87 50 82 50 76 Z"
-        fill="url(#shadeGrad)"/>
-
-  <!-- Oberseite mit Mulde -->
-  <path d="M50 70 C50 63 58 59 66 58.5 C74 56 86 57.5 96 57 C108 56.5 118 58 128 58 C140 59 150 63 150 70
-           C150 77 128 82 100 82 C72 82 50 77 50 70 Z" fill="url(#topGrad)" stroke="#000" stroke-opacity=".06"/>
-  <ellipse cx="100" cy="71" rx="39" ry="8" fill="url(#hollowGrad)"/>
-  <g class="lit">
-    <ellipse class="inner" cx="100" cy="71" rx="39" ry="8" fill="url(#hollowLit)"/>
-  </g>
-  <ellipse cx="100" cy="72" rx="4" ry="1.6" fill="#6f747b" opacity=".55"/>
-
-  <!-- LED-Flämmchen -->
+  <!-- LED-Teelicht im Inneren -->
+  <path d="M70 146 V152 C70 156 84 159 100 159 C116 159 130 156 130 152 V146 Z" fill="#fff" opacity=".35"/>
+  <ellipse cx="100" cy="146" rx="30" ry="5" fill="#fff" opacity=".55"/>
+  <path d="M97 146 V134 C97 132 103 132 103 134 V146 Z" fill="#fff" opacity=".45"/>
   <g class="lit" filter="url(#soft)">
-    <path class="flame" d="M100 42 C104 51 111 58 109 66 C108 71 104.5 74 100 74 C95.5 74 92 71 91 66 C89 58 96 51 100 42 Z"/>
-    <path class="core"  d="M100 57 C102.5 61 105.5 65 104.5 69 C104 71.5 102 73 100 73 C98 73 96 71.5 95.5 69 C94.5 65 97.5 61 100 57 Z"/>
+    <path class="flame" d="M100 92 C106 104 115 114 113 126 C112 134 107 139 100 139 C93 139 88 134 87 126 C85 114 94 104 100 92 Z"/>
+    <path class="core"  d="M100 112 C103.5 118 107.5 123 106.5 129 C106 133 103.5 136 100 136 C96.5 136 94 133 93.5 129 C92.5 123 96.5 118 100 112 Z"/>
   </g>
+
+  <!-- Glas-Schattierung, Glanz, Öffnung -->
+  <path d="${PBC_GLASS}" fill="url(#shadeGrad)"/>
+  <path d="M36 44 C32 80 33 116 42 142" fill="none" stroke="#fff" stroke-opacity=".35"
+        stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="100" cy="30" rx="76" ry="9" fill="#fff" fill-opacity=".18"
+           stroke="#fff" stroke-opacity=".7" stroke-width="1.2"/>
+  <path d="M28 33 C60 41 140 41 172 33" fill="none" stroke="#000" stroke-opacity=".06" stroke-width="1"/>
+
+  <!-- Sockel -->
+  <path d="${PBC_BASE}" fill="url(#baseGrad)"/>
+  <path d="M28 161 C60 170 140 170 172 161" fill="none" stroke="#fff" stroke-width="1.5" stroke-opacity=".9"/>
+  <path d="M30 186 C36 196 50 202 70 204 L130 204 C150 202 164 196 170 186 C166 198 152 204 132 205.5
+           L68 205.5 C48 204 34 198 30 186 Z" fill="#000" opacity=".06"/>
+  <text x="100" y="187" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
+        font-size="9.5" font-weight="600" letter-spacing="1.6" fill="#6f747b">PLAYBULB</text>
 </svg>`;
 
 class PlaybulbCandleCard extends HTMLElement {
@@ -304,6 +269,8 @@ class PlaybulbCandleCard extends HTMLElement {
     this._hue = 0;
     this._rainbowStep = 0;
     this._effectKey = "";
+    this._dragB = false;
+    this._dragC = false;
   }
 
   static getConfigElement() {
@@ -348,19 +315,17 @@ class PlaybulbCandleCard extends HTMLElement {
     this._update();
   }
 
-  getCardSize() { return 5; }
-  getGridOptions() { return { columns: 6, rows: 5, min_columns: 3, min_rows: 3 }; }
+  getCardSize() {
+    const c = this._config || {};
+    return 5 + (c.show_brightness ? 1 : 0) + (c.show_color_picker ? 5 : 0) + (c.show_effects ? 1 : 0);
+  }
+  getGridOptions() { return { columns: 6, min_columns: 3 }; }
 
   connectedCallback() { if (this._built) this._update(); }
   disconnectedCallback() { this._stopRainbow(); }
 
   _build() {
     const c = this._config;
-    const swatches = PBC_SWATCHES.map((s, i) =>
-      `<button class="sw${s.white ? " white" : ""}" data-i="${i}" title="${s.name}"
-               aria-label="${s.name}" style="--sw:${pbcHex(s.rgb)}"></button>`
-    ).join("");
-
     this.shadowRoot.innerHTML = `
       <style>${PBC_STYLE}</style>
       <ha-card>
@@ -371,30 +336,21 @@ class PlaybulbCandleCard extends HTMLElement {
             <div class="state${c.show_state ? "" : " hidden"}" id="state"></div>
           </div>
           ${c.show_brightness ? `
-          <div class="row">
-            <ha-icon icon="mdi:brightness-6"></ha-icon>
-            <input type="range" class="slider" id="bright" min="0" max="100" step="1" value="0"
-                   aria-label="Helligkeit">
-            <span class="pct" id="bval">0 %</span>
-          </div>` : ""}
-          ${c.show_effects ? `
-          <div class="row" id="effrow">
-            <ha-icon icon="mdi:creation"></ha-icon>
-            <select id="effect" aria-label="Effekt"></select>
+          <div class="csw" id="brightwrap">
+            <div class="cs" id="bright" role="slider" tabindex="0" aria-label="Helligkeit"
+                 aria-valuemin="1" aria-valuemax="100" aria-valuenow="0">
+              <div class="cs-bar"></div>
+            </div>
+            <span class="cs-tip" id="btip">0 %</span>
           </div>` : ""}
           ${c.show_color_picker ? `
-          <div class="colors" id="colors">
-            <div class="swatches">
-              ${swatches}
-              <label class="sw custom" title="Eigene Farbe" id="custom">
-                <input type="color" id="color" aria-label="Eigene Farbe" value="#ffc478">
-              </label>
-            </div>
-            <div class="row">
-              <ha-icon icon="mdi:palette"></ha-icon>
-              <input type="range" class="slider hue" id="hue" min="0" max="360" step="1" value="30"
-                     aria-label="Farbton">
-            </div>
+          <div class="wheel" id="wheel" role="slider" tabindex="0" aria-label="Farbe">
+            <div class="mk"></div>
+          </div>` : ""}
+          ${c.show_effects ? `
+          <div class="sel" id="effrow">
+            <label for="effect">Effekt</label>
+            <select id="effect"></select>
           </div>` : ""}
         </div>
       </ha-card>`;
@@ -404,70 +360,132 @@ class PlaybulbCandleCard extends HTMLElement {
     this._elName = $("name");
     this._elState = $("state");
     this._elBright = $("bright");
-    this._elBval = $("bval");
+    this._elBrightWrap = $("brightwrap");
+    this._elBtip = $("btip");
+    this._elWheel = $("wheel");
     this._elEffect = $("effect");
     this._elEffRow = $("effrow");
-    this._elColors = $("colors");
-    this._elColor = $("color");
-    this._elCustom = $("custom");
-    this._elHue = $("hue");
-    this._elSwatches = Array.from(this.shadowRoot.querySelectorAll(".sw[data-i]"));
     this._effectKey = "";
     this._rootClass = "";
+    this._bVal = 0;
+    this._hs = [30, 0.5];
 
     $("lamp").addEventListener("click", () => this._tap());
-
-    if (this._elBright) {
-      this._elBright.addEventListener("input", () => {
-        this._setBrightUi(Number(this._elBright.value));
-      });
-      this._elBright.addEventListener("change", () => {
-        const v = Number(this._elBright.value);
-        if (v <= 0) this._call("turn_off", {});
-        else this._call("turn_on", { brightness_pct: v });
-      });
-    }
+    if (this._elBright) this._bindBrightness();
+    if (this._elWheel) this._bindWheel();
     if (this._elEffect) {
       this._elEffect.addEventListener("change", () => {
         this._call("turn_on", { effect: this._elEffect.value });
       });
     }
-    this._elSwatches.forEach((el) => {
-      el.addEventListener("click", () => this._pickSwatch(PBC_SWATCHES[Number(el.dataset.i)]));
-    });
-    if (this._elColor) {
-      this._elColor.addEventListener("change", () => {
-        const h = this._elColor.value;
-        const rgb = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-        this._call("turn_on", { rgb_color: rgb });
-      });
-    }
-    if (this._elHue) {
-      this._elHue.addEventListener("input", () => this._setHueUi(Number(this._elHue.value)));
-      this._elHue.addEventListener("change", () => {
-        this._call("turn_on", { hs_color: [Number(this._elHue.value), 100] });
-      });
-    }
     this._built = true;
   }
 
+  /* ---- Helligkeitsregler ---- */
+  _bindBrightness() {
+    const el = this._elBright;
+    const fromEvent = (ev) => {
+      const r = el.getBoundingClientRect();
+      return Math.round(pbcClamp((ev.clientX - r.left) / r.width, 0, 1) * 99) + 1;
+    };
+    const commit = (v) => this._call("turn_on", { brightness_pct: v });
+    el.addEventListener("pointerdown", (ev) => {
+      if (this._unavail) return;
+      el.setPointerCapture(ev.pointerId);
+      this._dragB = true;
+      el.classList.add("drag");
+      this._elBrightWrap.classList.add("tip");
+      this._setBrightUi(fromEvent(ev));
+    });
+    el.addEventListener("pointermove", (ev) => {
+      if (this._dragB) this._setBrightUi(fromEvent(ev));
+    });
+    const end = () => {
+      if (!this._dragB) return;
+      this._dragB = false;
+      el.classList.remove("drag");
+      this._elBrightWrap.classList.remove("tip");
+      commit(this._bVal);
+    };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+    el.addEventListener("keydown", (ev) => {
+      if (this._unavail) return;
+      const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 }[ev.key];
+      let v = this._bVal;
+      if (step) v = pbcClamp(v + step, 1, 100);
+      else if (ev.key === "Home") v = 1;
+      else if (ev.key === "End") v = 100;
+      else return;
+      ev.preventDefault();
+      this._setBrightUi(v);
+      clearTimeout(this._keyTimer);
+      this._keyTimer = setTimeout(() => commit(v), 400);
+    });
+  }
+
   _setBrightUi(pct) {
+    this._bVal = pct;
     this._elBright.style.setProperty("--p", (pct / 100).toFixed(3));
-    this._elBval.textContent = pct + " %";
+    this._elBright.toggleAttribute("data-zero", pct <= 0);
+    this._elBright.setAttribute("aria-valuenow", pct);
+    this._elBrightWrap.style.setProperty("--p", (pct / 100).toFixed(3));
+    this._elBtip.textContent = pct + " %";
   }
 
-  _setHueUi(h) {
-    this._elHue.style.setProperty("--thumb", `hsl(${h} 100% 50%)`);
+  /* ---- Farbrad ---- */
+  _bindWheel() {
+    const el = this._elWheel;
+    const fromEvent = (ev) => {
+      const r = el.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width * 2 - 1;
+      const y = (ev.clientY - r.top) / r.height * 2 - 1;
+      const h = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+      return [h, pbcClamp(Math.sqrt(x * x + y * y), 0, 1)];
+    };
+    const commit = () => this._call("turn_on", {
+      hs_color: [Math.round(this._hs[0]), Math.round(this._hs[1] * 100)],
+    });
+    el.addEventListener("pointerdown", (ev) => {
+      el.setPointerCapture(ev.pointerId);
+      this._dragC = true;
+      el.classList.add("drag");
+      el.classList.remove("nomk");
+      this._setWheelUi(fromEvent(ev));
+    });
+    el.addEventListener("pointermove", (ev) => {
+      if (this._dragC) this._setWheelUi(fromEvent(ev));
+    });
+    const end = () => {
+      if (!this._dragC) return;
+      this._dragC = false;
+      el.classList.remove("drag");
+      commit();
+    };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+    el.addEventListener("keydown", (ev) => {
+      let [h, s] = this._hs;
+      if (ev.key === "ArrowRight") h = (h + 5) % 360;
+      else if (ev.key === "ArrowLeft") h = (h + 355) % 360;
+      else if (ev.key === "ArrowUp") s = pbcClamp(s + 0.05, 0, 1);
+      else if (ev.key === "ArrowDown") s = pbcClamp(s - 0.05, 0, 1);
+      else return;
+      ev.preventDefault();
+      this._setWheelUi([h, s]);
+      clearTimeout(this._keyTimerC);
+      this._keyTimerC = setTimeout(commit, 400);
+    });
   }
 
-  _pickSwatch(s) {
-    if (s.white) {
-      const st = this._hass && this._hass.states[this._config.entity];
-      const modes = (st && st.attributes.supported_color_modes) || [];
-      if (modes.includes("rgbw")) return this._call("turn_on", { rgbw_color: [0, 0, 0, 255] });
-      if (modes.includes("color_temp")) return this._call("turn_on", { color_temp_kelvin: 2700 });
-    }
-    this._call("turn_on", { rgb_color: s.rgb.slice() });
+  _setWheelUi([h, s]) {
+    this._hs = [h, s];
+    const rad = h * Math.PI / 180;
+    const st = this._elWheel.style;
+    st.setProperty("--x", (50 + Math.cos(rad) * s * 50).toFixed(2) + "%");
+    st.setProperty("--y", (50 + Math.sin(rad) * s * 50).toFixed(2) + "%");
+    const rgb = pbcHsv(h, s, 1);
+    st.setProperty("--mc", `rgb(${rgb.map(Math.round).join(",")})`);
   }
 
   _call(service, data) {
@@ -511,19 +529,15 @@ class PlaybulbCandleCard extends HTMLElement {
     return [r, g, b].map((v) => Math.round((v * 255) / m));
   }
 
-  // Index des passenden Farbchips (-1 = keiner)
-  _matchSwatch(a, rgb) {
+  // Position im Farbrad (Weißkanal zählt als Weiß -> Richtung Mitte)
+  _hsFromAttrs(a) {
+    if (Array.isArray(a.hs_color)) return [a.hs_color[0], a.hs_color[1] / 100];
     if (Array.isArray(a.rgbw_color)) {
       const [R, G, B, W] = a.rgbw_color;
-      if (W > 0 && Math.max(R, G, B) < 20) return 0;
+      return pbcRgbToHs([R + W, G + W, B + W]);
     }
-    if (a.color_mode === "color_temp" || a.color_mode === "white") return 0;
-    let best = -1, bestD = 70;
-    PBC_SWATCHES.forEach((s, i) => {
-      const d = pbcDist(s.rgb, rgb);
-      if (d < bestD) { bestD = d; best = i; }
-    });
-    return best;
+    if (Array.isArray(a.rgb_color)) return pbcRgbToHs(a.rgb_color);
+    return null;
   }
 
   _startRainbow(step) {
@@ -548,6 +562,7 @@ class PlaybulbCandleCard extends HTMLElement {
 
     if (!st) {
       this._stopRainbow();
+      this._unavail = true;
       this._setClass("root unavail off");
       this._elName.textContent = this._config.name || this._config.entity;
       this._elState.textContent = "Entität nicht gefunden";
@@ -557,6 +572,7 @@ class PlaybulbCandleCard extends HTMLElement {
     const a = st.attributes || {};
     const on = st.state === "on";
     const unavail = st.state === "unavailable" || st.state === "unknown";
+    this._unavail = unavail;
     const eff = String(a.effect || "").toLowerCase();
 
     let fx = "";
@@ -578,7 +594,7 @@ class PlaybulbCandleCard extends HTMLElement {
     const rgb = this._rgb(a);
     const rs = this._root.style;
     rs.setProperty("--glow", (0.3 + 0.7 * bri).toFixed(3));
-    rs.setProperty("--tint", (0.1 + 0.35 * bri).toFixed(3));
+    rs.setProperty("--tint", (0.3 + 0.55 * bri).toFixed(3));
     rs.setProperty("--flame", (0.55 + 0.45 * bri).toFixed(3));
 
     if (fx === "rainbow") {
@@ -598,12 +614,17 @@ class PlaybulbCandleCard extends HTMLElement {
     this._elState.textContent = stateText;
 
     // Regler (nicht überschreiben, solange der Nutzer sie bedient)
-    const focus = this.shadowRoot.activeElement;
-    if (this._elBright && focus !== this._elBright) {
-      const pct = Math.round(bri * 100);
-      this._elBright.value = pct;
-      this._setBrightUi(pct);
-      this._elBright.disabled = unavail;
+    if (this._elBright && !this._dragB) {
+      this._setBrightUi(Math.round(bri * 100));
+      this._elBright.setAttribute("aria-disabled", unavail);
+    }
+    if (this._elWheel) {
+      this._elWheel.classList.toggle("disabled", unavail);
+      if (!this._dragC) {
+        const hs = this._hsFromAttrs(a);
+        if (hs) this._setWheelUi(hs);
+        this._elWheel.classList.toggle("nomk", !hs || fx === "rainbow");
+      }
     }
     if (this._elEffect) {
       const list = Array.isArray(a.effect_list) ? a.effect_list : [];
@@ -618,24 +639,12 @@ class PlaybulbCandleCard extends HTMLElement {
         });
       }
       this._elEffRow.classList.toggle("hidden", list.length === 0);
-      if (focus !== this._elEffect) {
+      if (this.shadowRoot.activeElement !== this._elEffect) {
         let idx = list.indexOf(a.effect);
         if (idx < 0) idx = list.findIndex((e) => /^(kein|none|no effect|off|aus)/i.test(e));
         this._elEffect.selectedIndex = idx;
       }
       this._elEffect.disabled = unavail;
-    }
-    if (this._elColors) {
-      this._elColors.classList.toggle("disabled", unavail);
-      const idx = on && fx !== "rainbow" ? this._matchSwatch(a, rgb) : -1;
-      this._elSwatches.forEach((el, i) => el.classList.toggle("active", i === idx));
-      this._elCustom.classList.toggle("active", on && fx !== "rainbow" && idx === -1);
-      if (focus !== this._elColor && on) this._elColor.value = pbcHex(rgb);
-      if (focus !== this._elHue) {
-        if (on && idx !== 0) this._elHue.value = pbcRgbToHue(rgb);
-        this._setHueUi(Number(this._elHue.value));
-      }
-      this._elHue.disabled = unavail;
     }
   }
 
@@ -657,7 +666,7 @@ const PBC_LABELS = {
   show_state: "Status anzeigen",
   show_brightness: "Helligkeitsregler",
   show_effects: "Effekt-Auswahl",
-  show_color_picker: "Farbwahl",
+  show_color_picker: "Farbrad",
 };
 
 const PBC_SCHEMA = [

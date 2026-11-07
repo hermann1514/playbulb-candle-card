@@ -2,6 +2,8 @@
 
 Lovelace-Karte für MIPOW Playbulb Candle (Integration `playbulb_candle`). Die Lampe wird als SVG in der aktuellen Farbe dargestellt (RGB + Weißkanal, Helligkeit als Leuchtstärke). Die Effekte Kerzenlicht, Pulsieren, Blitz und Regenbogen werden animiert.
 
+Bedienung: Tippen auf die Kerze schaltet ein/aus, darunter ein Helligkeitsregler, die Effekt-Auswahl und eine Farbwahl mit Farbchips (inkl. Warmweiß über den Weißkanal), Farbton-Regler und „+“ für eine beliebige eigene Farbe.
+
 ## Installation (HACS)
 
 1. HACS → Dashboard → Menü → *Benutzerdefinierte Repositories* → Repo-URL, Typ **Dashboard**.
@@ -24,5 +26,5 @@ entity: light.playbulb_candle
 | `show_name` / `show_state` | `true` | Texte unter der Lampe |
 | `show_brightness` | `true` | Helligkeitsregler |
 | `show_effects` | `true` | Effekt-Auswahl |
-| `show_color_picker` | `true` | Farbwähler |
+| `show_color_picker` | `true` | Farbwahl (Farbchips + Farbton-Regler) |
 | `white_color` | `[255,196,120]` | Farbton des Weißkanals für die Darstellung |

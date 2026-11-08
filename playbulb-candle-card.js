@@ -2,18 +2,53 @@
  * playbulb-candle-card
  * Home-Assistant-Karte für MIPOW Playbulb Candle (Integration "playbulb_candle").
  * Zeigt die Lampe als SVG in der aktuellen Farbe. Eine Datei, kein Build.
+ * Alle Optionen sind im visuellen Editor einstellbar.
  *
- * YAML:
+ * YAML (alles außer entity optional):
  *   type: custom:playbulb-candle-card
  *   entity: light.playbulb_candle
+ *   layout: vertical              # vertical (Standard) | horizontal (kompakt)
+ *   icon_tap_action:   { action: toggle }
+ *   icon_hold_action:  { action: more-info }
+ *   tap_action:        { action: none }
  */
 
-const PBC_VERSION = "1.3.0";
+const PBC_VERSION = "1.4.0";
 const PBC_WARM_WHITE = [255, 196, 120]; // Farbton des Weißkanals der Kerze
+const PBC_HOLD_MS = 500;   // ab dieser Dauer gilt ein Druck als "Halten"
+const PBC_DOUBLE_MS = 250; // Wartezeit auf den zweiten Tipp
+const PBC_MOVE_PX = 10;    // mehr Bewegung = Scrollen, keine Geste
+
+const PBC_DEFAULTS = {
+  layout: "vertical",
+  show_name: true,
+  show_state: true,
+  show_brightness: true,
+  show_color_picker: true,
+  show_effects: true,
+};
+
+// Standardaktionen wie bei der HA-Button-Karte (Lampe) bzw. ohne Aktion (Karte)
+const PBC_ACTION_DEFAULTS = {
+  icon_tap_action: "toggle",
+  icon_hold_action: "more-info",
+  icon_double_tap_action: "none",
+  tap_action: "none",
+  hold_action: "none",
+  double_tap_action: "none",
+};
 
 const pbcClamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const pbcHex = (rgb) =>
-  "#" + rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+
+// Bis v1.3 war tap_action ein String und galt für die Lampe.
+function pbcMigrate(config) {
+  const c = { ...config };
+  if (typeof c.tap_action === "string") {
+    if (!c.icon_tap_action) c.icon_tap_action = { action: c.tap_action };
+    delete c.tap_action;
+  }
+  return c;
+}
 
 function pbcHsv(h, s, v) {
   // h: 0-360, s/v: 0-1
@@ -35,21 +70,89 @@ function pbcRgbToHs([r, g, b]) {
   return [(h * 60 + 360) % 360, d / max];
 }
 
+// Tippen / Doppeltippen / Halten auf einem Element erkennen.
+// Bewegt sich der Finger mehr als PBC_MOVE_PX, wird nichts ausgelöst (Scrollen).
+function pbcGestures(el, { canHold, canDouble, ignore, onAction }) {
+  let start = null, holdTimer = null, held = false, dblTimer = null;
+  const reset = () => {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    start = null;
+  };
+  el.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0 || (ignore && ignore(ev))) return;
+    start = { x: ev.clientX, y: ev.clientY, id: ev.pointerId };
+    held = false;
+    clearTimeout(holdTimer);
+    if (canHold()) {
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        held = true;
+        onAction("hold");
+      }, PBC_HOLD_MS);
+    }
+  });
+  el.addEventListener("pointermove", (ev) => {
+    if (!start || ev.pointerId !== start.id) return;
+    if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > PBC_MOVE_PX) reset();
+  });
+  el.addEventListener("pointerup", (ev) => {
+    if (!start || ev.pointerId !== start.id) return;
+    reset();
+    if (held) return;
+    if (!canDouble()) {
+      onAction("tap");
+    } else if (dblTimer) {
+      clearTimeout(dblTimer);
+      dblTimer = null;
+      onAction("double_tap");
+    } else {
+      dblTimer = setTimeout(() => {
+        dblTimer = null;
+        onAction("tap");
+      }, PBC_DOUBLE_MS);
+    }
+  });
+  el.addEventListener("pointercancel", reset);
+  el.addEventListener("contextmenu", (ev) => {
+    // Langes Drücken öffnet auf dem Handy sonst das Kontextmenü
+    if (canHold() && !(ignore && ignore(ev))) ev.preventDefault();
+  });
+  el.addEventListener("keydown", (ev) => {
+    if (ev.target !== el || (ev.key !== "Enter" && ev.key !== " ")) return;
+    ev.preventDefault();
+    onAction("tap");
+  });
+}
+
 const PBC_STYLE = `
-  :host { display: block; }
-  ha-card { padding: 16px; overflow: hidden; height: 100%; box-sizing: border-box; }
+  :host { display: block; height: 100%; }
+  ha-card {
+    height: 100%; box-sizing: border-box; padding: 16px;
+    overflow: hidden; isolation: isolate;
+    display: flex; flex-direction: column;
+  }
+  ha-card.compact { padding: 12px; }
+  ha-card.actionable { cursor: pointer; }
+  ha-card.actionable, .lampbox {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    -webkit-user-select: none; user-select: none; touch-action: manipulation;
+  }
+  ha-card:focus-visible { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: -2px; }
   .root {
     --c: rgb(255,196,120); --glow: 0; --tint: 0; --flame: 1;
     --sc: var(--c);
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    display: flex; flex-direction: column; gap: 12px;
+    margin-block: auto; min-width: 0;
   }
   .root.off { --sc: var(--state-inactive-color, #9e9e9e); }
   .root.unavail { opacity: .5; }
-  .lampbox {
-    width: 100%; max-width: 210px; cursor: pointer; user-select: none;
-    -webkit-tap-highlight-color: transparent;
-  }
-  svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .head { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+  .lampbox { width: 100%; max-width: 230px; border-radius: 12px; outline: none; cursor: default; }
+  .lampbox.actionable { cursor: pointer; }
+  .lampbox:focus-visible { box-shadow: 0 0 0 2px var(--primary-color, #03a9f4); }
+  svg { display: block; width: 100%; height: auto; aspect-ratio: 236 / 245; }
   .lit { transition: opacity .5s ease; }
   .root.off .lit, .root.unavail .lit { opacity: 0; }
   .glow  { opacity: var(--glow); }
@@ -77,15 +180,24 @@ const PBC_STYLE = `
   @keyframes pbc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .15; } }
   @keyframes pbc-flash { 0%,40% { opacity: 1; } 45%,70% { opacity: .04; } 75%,100% { opacity: 1; } }
 
-  .info { text-align: center; }
-  .name { font-size: 1.1em; font-weight: 500; color: var(--primary-text-color); }
-  .state { font-size: .9em; color: var(--secondary-text-color); }
+  .info { text-align: center; min-width: 0; max-width: 100%; }
+  .name { font-size: 1.1em; font-weight: 500; color: var(--primary-text-color); overflow-wrap: anywhere; }
+  .state { font-size: .9em; color: var(--secondary-text-color); overflow-wrap: anywhere; }
+
+  /* --- Kompakt: kleine Lampe neben Name/Status --- */
+  .lay-horizontal .head { flex-direction: row; gap: 12px; }
+  .lay-horizontal .lampbox { width: 64px; flex: none; }
+  .lay-horizontal .info { text-align: left; flex: 1; }
+  .lay-horizontal .name, .lay-horizontal .state {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lay-horizontal .wheel { max-width: 200px; }
 
   /* --- Helligkeit: Stil wie ha-control-slider (Kachel-Feature) --- */
-  .csw { position: relative; width: 100%; }
+  .csw { position: relative; }
   .cs {
     --p: 0; position: relative; height: 42px; border-radius: 12px; overflow: hidden;
-    cursor: pointer; outline: none; touch-action: none; user-select: none;
+    cursor: pointer; outline: none; touch-action: pan-y; user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
   .cs::before {
@@ -114,7 +226,8 @@ const PBC_STYLE = `
 
   /* --- Farbrad: Stil wie ha-hs-color-picker --- */
   .wheel {
-    --x: 50%; --y: 50%; position: relative; width: 100%; max-width: 240px; aspect-ratio: 1;
+    --x: 50%; --y: 50%; position: relative; align-self: center;
+    width: calc(100% - 16px); max-width: 240px; aspect-ratio: 1;
     border-radius: 50%; cursor: pointer; touch-action: none; user-select: none; outline: none;
     background:
       radial-gradient(circle closest-side, #fff, rgba(255,255,255,0)),
@@ -130,14 +243,14 @@ const PBC_STYLE = `
     box-shadow: 0 0 0 1px rgba(0,0,0,.15), 0 2px 6px rgba(0,0,0,.35);
     transition: width .15s ease, height .15s ease;
   }
-  .wheel.drag .mk { width: 40px; height: 40px; }
+  .wheel.drag .mk { width: 36px; height: 36px; }
   .wheel:focus-visible .mk { box-shadow: 0 0 0 2px var(--primary-color, #03a9f4), 0 2px 6px rgba(0,0,0,.35); }
   .wheel.nomk .mk { display: none; }
   .wheel.disabled { pointer-events: none; opacity: .5; }
 
   /* --- Effekt: Stil wie ha-select (filled) --- */
   .sel {
-    position: relative; width: 100%; box-sizing: border-box;
+    position: relative; box-sizing: border-box;
     background: var(--input-fill-color, color-mix(in srgb, var(--primary-text-color, #000) 6%, transparent));
     border-radius: 4px 4px 0 0;
     border-bottom: 1px solid var(--input-idle-line-color, rgba(0,0,0,.42));
@@ -173,8 +286,10 @@ const PBC_BASE =
   "M14 174 C35 188 165 188 186 174 C182 198 168 215 148 221 " +
   "C130 224.5 70 224.5 52 221 C32 215 18 198 14 174 Z";
 
+// viewBox umfasst auch den Lichtschein (Kreis r=118 um 100/105),
+// damit nichts außerhalb der SVG-Box gezeichnet wird.
 const PBC_SVG = `
-<svg viewBox="0 0 200 232" role="img" aria-label="Playbulb Candle">
+<svg viewBox="-18 -13 236 245" width="236" height="245" role="img" aria-label="Playbulb Candle">
   <defs>
     <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
       <stop offset="0"   style="stop-color:var(--c);stop-opacity:.7"/>
@@ -305,15 +420,13 @@ class PlaybulbCandleCard extends HTMLElement {
     if (!String(config.entity).startsWith("light.")) {
       throw new Error("'entity' muss eine light.-Entität sein");
     }
-    this._config = {
-      show_name: true,
-      show_state: true,
-      show_brightness: true,
-      show_effects: true,
-      show_color_picker: true,
-      tap_action: "toggle",
-      ...config,
-    };
+    const c = { ...PBC_DEFAULTS, ...pbcMigrate(config) };
+    for (const [key, def] of Object.entries(PBC_ACTION_DEFAULTS)) {
+      const v = c[key];
+      c[key] = !v ? { action: def } : typeof v === "string" ? { action: v } : v;
+    }
+    if (c.layout !== "horizontal") c.layout = "vertical";
+    this._config = c;
     this._built = false;
     if (this._hass) {
       this._build();
@@ -328,28 +441,55 @@ class PlaybulbCandleCard extends HTMLElement {
     this._update();
   }
 
+  // Masonry-Ansicht: eine Einheit ≈ 50 px
   getCardSize() {
-    const c = this._config || {};
-    return 5 + (c.show_brightness ? 1 : 0) + (c.show_color_picker ? 5 : 0) + (c.show_effects ? 1 : 0);
+    const c = this._config || PBC_DEFAULTS;
+    const compact = c.layout === "horizontal";
+    let n = compact ? 2 : 5 + (c.show_name || c.show_state ? 1 : 0);
+    if (c.show_brightness) n += 1;
+    if (c.show_color_picker) n += compact ? 4 : 5;
+    if (c.show_effects) n += 1;
+    return n;
   }
-  getGridOptions() { return { columns: 6, min_columns: 3 }; }
+
+  // Sections-Ansicht: volle Abschnittsbreite, Höhe nach Inhalt
+  getGridOptions() {
+    return { columns: 12, rows: "auto", min_columns: 6 };
+  }
 
   connectedCallback() { if (this._built) this._update(); }
   disconnectedCallback() { this._stopRainbow(); }
 
+  _isSet(key) {
+    const a = this._config[key];
+    return !!a && a.action !== "none";
+  }
+
+  _hasActions(prefix) {
+    return ["tap_action", "hold_action", "double_tap_action"].some((k) => this._isSet(prefix + k));
+  }
+
   _build() {
     const c = this._config;
+    const lampAct = this._hasActions("icon_");
+    const cardAct = this._hasActions("");
+    const showInfo = c.show_name || c.show_state;
     this.shadowRoot.innerHTML = `
       <style>${PBC_STYLE}</style>
-      <ha-card>
-        <div class="root off">
-          <div class="lampbox" id="lamp">${PBC_SVG}</div>
-          <div class="info">
-            <div class="name${c.show_name ? "" : " hidden"}" id="name"></div>
-            <div class="state${c.show_state ? "" : " hidden"}" id="state"></div>
+      <ha-card class="${cardAct ? "actionable" : ""} ${c.layout === "horizontal" ? "compact" : ""}"
+               ${cardAct ? 'tabindex="0"' : ""}>
+        <div class="root off lay-${c.layout}">
+          <div class="head">
+            <div class="lampbox${lampAct ? " actionable" : ""}" id="lamp"
+                 ${lampAct ? 'role="button" tabindex="0" aria-label="Lampe"' : ""}>${PBC_SVG}</div>
+            ${showInfo ? `
+            <div class="info">
+              ${c.show_name ? '<div class="name" id="name"></div>' : ""}
+              ${c.show_state ? '<div class="state" id="state"></div>' : ""}
+            </div>` : ""}
           </div>
           ${c.show_brightness ? `
-          <div class="csw" id="brightwrap">
+          <div class="csw ctl" id="brightwrap">
             <div class="cs" id="bright" role="slider" tabindex="0" aria-label="Helligkeit"
                  aria-valuemin="1" aria-valuemax="100" aria-valuenow="0">
               <div class="cs-bar"></div>
@@ -357,11 +497,11 @@ class PlaybulbCandleCard extends HTMLElement {
             <span class="cs-tip" id="btip">0 %</span>
           </div>` : ""}
           ${c.show_color_picker ? `
-          <div class="wheel" id="wheel" role="slider" tabindex="0" aria-label="Farbe">
+          <div class="wheel ctl" id="wheel" role="slider" tabindex="0" aria-label="Farbe">
             <div class="mk"></div>
           </div>` : ""}
           ${c.show_effects ? `
-          <div class="sel" id="effrow">
+          <div class="sel ctl" id="effrow">
             <label for="effect">Effekt</label>
             <select id="effect"></select>
           </div>` : ""}
@@ -369,7 +509,9 @@ class PlaybulbCandleCard extends HTMLElement {
       </ha-card>`;
 
     const $ = (id) => this.shadowRoot.getElementById(id);
+    this._card = this.shadowRoot.querySelector("ha-card");
     this._root = this.shadowRoot.querySelector(".root");
+    this._elLamp = $("lamp");
     this._elName = $("name");
     this._elState = $("state");
     this._elBright = $("bright");
@@ -382,8 +524,27 @@ class PlaybulbCandleCard extends HTMLElement {
     this._rootClass = "";
     this._bVal = 0;
     this._hs = [30, 0.5];
+    this._dragB = false;
+    this._dragC = false;
 
-    $("lamp").addEventListener("click", () => this._tap());
+    if (lampAct) {
+      pbcGestures(this._elLamp, {
+        canHold: () => this._isSet("icon_hold_action"),
+        canDouble: () => this._isSet("icon_double_tap_action"),
+        onAction: (a) => this._action("icon_", a),
+      });
+    }
+    if (cardAct) {
+      // Bedienelemente (und die Lampe, wenn sie eigene Aktionen hat) lösen keine Kartenaktion aus
+      const lamp = this._elLamp;
+      pbcGestures(this._card, {
+        canHold: () => this._isSet("hold_action"),
+        canDouble: () => this._isSet("double_tap_action"),
+        ignore: (ev) => ev.composedPath().some((n) =>
+          (n.classList && n.classList.contains("ctl")) || (lampAct && n === lamp)),
+        onAction: (a) => this._action("", a),
+      });
+    }
     if (this._elBright) this._bindBrightness();
     if (this._elWheel) this._bindWheel();
     if (this._elEffect) {
@@ -394,6 +555,25 @@ class PlaybulbCandleCard extends HTMLElement {
     this._built = true;
   }
 
+  // Aktion an Home Assistant übergeben (wie bei den Standardkarten):
+  // more-info, toggle, navigate, url, perform-action, assist … inkl. Bestätigung
+  _action(prefix, action) {
+    const c = this._config;
+    const conf = {
+      entity: c.entity,
+      tap_action: c[prefix + "tap_action"],
+      hold_action: c[prefix + "hold_action"],
+      double_tap_action: c[prefix + "double_tap_action"],
+    };
+    const a = conf[action + "_action"];
+    if (!a || a.action === "none") return;
+    const st = this._hass && this._hass.states[c.entity];
+    if (a.action === "toggle" && (!st || st.state === "unavailable")) return;
+    this.dispatchEvent(new CustomEvent("hass-action", {
+      bubbles: true, composed: true, detail: { config: conf, action },
+    }));
+  }
+
   /* ---- Helligkeitsregler ---- */
   _bindBrightness() {
     const el = this._elBright;
@@ -402,9 +582,14 @@ class PlaybulbCandleCard extends HTMLElement {
       return Math.round(pbcClamp((ev.clientX - r.left) / r.width, 0, 1) * 99) + 1;
     };
     const commit = (v) => this._call("turn_on", { brightness_pct: v });
+    const stop = () => {
+      this._dragB = false;
+      el.classList.remove("drag");
+      this._elBrightWrap.classList.remove("tip");
+    };
     el.addEventListener("pointerdown", (ev) => {
-      if (this._unavail) return;
-      el.setPointerCapture(ev.pointerId);
+      if (this._unavail || ev.button !== 0) return;
+      try { el.setPointerCapture(ev.pointerId); } catch (e) { /* synthetischer Zeiger */ }
       this._dragB = true;
       el.classList.add("drag");
       this._elBrightWrap.classList.add("tip");
@@ -413,15 +598,17 @@ class PlaybulbCandleCard extends HTMLElement {
     el.addEventListener("pointermove", (ev) => {
       if (this._dragB) this._setBrightUi(fromEvent(ev));
     });
-    const end = () => {
+    el.addEventListener("pointerup", () => {
       if (!this._dragB) return;
-      this._dragB = false;
-      el.classList.remove("drag");
-      this._elBrightWrap.classList.remove("tip");
+      stop();
       commit(this._bVal);
-    };
-    el.addEventListener("pointerup", end);
-    el.addEventListener("pointercancel", end);
+    });
+    // Browser übernimmt (senkrechtes Scrollen): nichts senden, Ist-Wert zeigen
+    el.addEventListener("pointercancel", () => {
+      if (!this._dragB) return;
+      stop();
+      this._update();
+    });
     el.addEventListener("keydown", (ev) => {
       if (this._unavail) return;
       const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 }[ev.key];
@@ -460,7 +647,8 @@ class PlaybulbCandleCard extends HTMLElement {
       hs_color: [Math.round(this._hs[0]), Math.round(this._hs[1] * 100)],
     });
     el.addEventListener("pointerdown", (ev) => {
-      el.setPointerCapture(ev.pointerId);
+      if (ev.button !== 0) return;
+      try { el.setPointerCapture(ev.pointerId); } catch (e) { /* synthetischer Zeiger */ }
       this._dragC = true;
       el.classList.add("drag");
       el.classList.remove("nomk");
@@ -507,19 +695,6 @@ class PlaybulbCandleCard extends HTMLElement {
       entity_id: this._config.entity,
       ...data,
     });
-  }
-
-  _tap() {
-    const st = this._hass && this._hass.states[this._config.entity];
-    if (!st || st.state === "unavailable") return;
-    if (this._config.tap_action === "more-info") {
-      this.dispatchEvent(new CustomEvent("hass-more-info", {
-        bubbles: true, composed: true,
-        detail: { entityId: this._config.entity },
-      }));
-    } else {
-      this._call("toggle", {});
-    }
   }
 
   // Anzeigefarbe aus rgbw_color / rgb_color / hs_color; immer auf volle Intensität normiert
@@ -576,9 +751,9 @@ class PlaybulbCandleCard extends HTMLElement {
     if (!st) {
       this._stopRainbow();
       this._unavail = true;
-      this._setClass("root unavail off");
-      this._elName.textContent = this._config.name || this._config.entity;
-      this._elState.textContent = "Entität nicht gefunden";
+      this._setClass(`root unavail off lay-${this._config.layout}`);
+      if (this._elName) this._elName.textContent = this._config.name || this._config.entity;
+      if (this._elState) this._elState.textContent = "Entität nicht gefunden";
       return;
     }
 
@@ -600,7 +775,8 @@ class PlaybulbCandleCard extends HTMLElement {
     }
 
     this._setClass(
-      "root " + (on ? "on" : "off") + (unavail ? " unavail" : "") + (fx ? " fx-" + fx : "")
+      "root " + (on ? "on" : "off") + (unavail ? " unavail" : "") + (fx ? " fx-" + fx : "") +
+      " lay-" + this._config.layout
     );
 
     const bri = on ? pbcClamp((a.brightness == null ? 255 : a.brightness) / 255, 0, 1) : 0;
@@ -618,13 +794,17 @@ class PlaybulbCandleCard extends HTMLElement {
     }
 
     // Texte
-    this._elName.textContent = this._config.name || a.friendly_name || this._config.entity;
-    let stateText = this._hass.formatEntityState
-      ? this._hass.formatEntityState(st)
-      : st.state;
-    if (on && a.brightness != null) stateText += ` · ${Math.round(bri * 100)} %`;
-    if (on && a.effect && !/^(kein|none|no effect)/i.test(a.effect)) stateText += ` · ${a.effect}`;
-    this._elState.textContent = stateText;
+    const name = this._config.name || a.friendly_name || this._config.entity;
+    if (this._elName) this._elName.textContent = name;
+    if (this._elLamp && this._elLamp.hasAttribute("role")) this._elLamp.setAttribute("aria-label", name);
+    if (this._elState) {
+      let stateText = this._hass.formatEntityState
+        ? this._hass.formatEntityState(st)
+        : st.state;
+      if (on && a.brightness != null) stateText += ` · ${Math.round(bri * 100)} %`;
+      if (on && a.effect && !/^(kein|none|no effect)/i.test(a.effect)) stateText += ` · ${a.effect}`;
+      this._elState.textContent = stateText;
+    }
 
     // Regler (nicht überschreiben, solange der Nutzer sie bedient)
     if (this._elBright && !this._dragB) {
@@ -674,63 +854,160 @@ class PlaybulbCandleCard extends HTMLElement {
 const PBC_LABELS = {
   entity: "Entität (Licht)",
   name: "Name (optional)",
-  tap_action: "Tippen auf die Lampe",
-  show_name: "Name anzeigen",
-  show_state: "Status anzeigen",
+  layout: "Darstellung",
+  display: "Anzeige",
+  show_name: "Name",
+  show_state: "Status",
   show_brightness: "Helligkeitsregler",
-  show_effects: "Effekt-Auswahl",
   show_color_picker: "Farbrad",
+  show_effects: "Effekt-Auswahl",
+  white_color: "Farbe des Weißkanals",
+  icon_interactions: "Interaktionen: Lampe",
+  icon_tap_action: "Tippen auf die Lampe",
+  icon_hold_action: "Halten der Lampe",
+  icon_double_tap_action: "Doppeltippen auf die Lampe",
+  card_interactions: "Interaktionen: Karte",
+  tap_action: "Tippen auf die Karte",
+  hold_action: "Halten der Karte",
+  double_tap_action: "Doppeltippen auf die Karte",
 };
+
+const PBC_HELPERS = {
+  layout: "Kompakt: kleine Lampe neben Name und Status, braucht auf dem Handy deutlich weniger Höhe.",
+  white_color: "Nur für die Anzeige: In diesem Farbton stellt die Karte den Weißkanal (W) der Kerze dar.",
+  tap_action: "Gilt für die Kartenfläche außerhalb der Lampe und der Bedienelemente.",
+};
+
+// Material-Design-Icons (24×24) für die aufklappbaren Bereiche
+const PBC_ICON_EYE =
+  "M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 " +
+  "12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 " +
+  "21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z";
+const PBC_ICON_TAP =
+  "M10,9A1,1 0 0,1 11,8A1,1 0 0,1 12,9V13.47L13.21,13.6L18.15,15.79C18.68,16.03 19,16.56 19,17.14V21.5" +
+  "C18.97,22.32 18.32,22.97 17.5,23H11C10.62,23 10.26,22.85 10,22.57L5.1,18.37L5.84,17.6C6.03,17.39 6.3," +
+  "17.28 6.58,17.28H6.8L10,19V9M11,5A4,4 0 0,1 15,9C15,10.5 14.2,11.77 13,12.46V11.24C13.61,10.69 14,9.89 " +
+  "14,9A3,3 0 0,0 11,6A3,3 0 0,0 8,9C8,9.89 8.39,10.69 9,11.24V12.46C7.8,11.77 7,10.5 7,9A4,4 0 0,1 11,5Z";
+const PBC_ICON_CARD =
+  "M4,5H20A2,2 0 0,1 22,7V17A2,2 0 0,1 20,19H4A2,2 0 0,1 2,17V7A2,2 0 0,1 4,5M4,7V17H20V7H4Z";
+
+const pbcActionField = (name, def) => ({ name, selector: { ui_action: { default_action: def } } });
 
 const PBC_SCHEMA = [
   { name: "entity", required: true, selector: { entity: { domain: "light" } } },
   { name: "name", selector: { text: {} } },
   {
-    name: "tap_action",
+    name: "layout",
     selector: {
       select: {
         mode: "dropdown",
         options: [
-          { value: "toggle", label: "Ein/Aus schalten" },
-          { value: "more-info", label: "Details öffnen" },
+          { value: "vertical", label: "Standard (große Lampe)" },
+          { value: "horizontal", label: "Kompakt (Lampe neben Name)" },
         ],
       },
     },
   },
-  { name: "show_name", selector: { boolean: {} } },
-  { name: "show_state", selector: { boolean: {} } },
-  { name: "show_brightness", selector: { boolean: {} } },
-  { name: "show_effects", selector: { boolean: {} } },
-  { name: "show_color_picker", selector: { boolean: {} } },
+  {
+    name: "display",
+    title: PBC_LABELS.display,
+    type: "expandable",
+    flatten: true,
+    iconPath: PBC_ICON_EYE,
+    schema: [
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "show_name", selector: { boolean: {} } },
+          { name: "show_state", selector: { boolean: {} } },
+          { name: "show_brightness", selector: { boolean: {} } },
+          { name: "show_color_picker", selector: { boolean: {} } },
+          { name: "show_effects", selector: { boolean: {} } },
+        ],
+      },
+      { name: "white_color", selector: { color_rgb: {} } },
+    ],
+  },
+  {
+    name: "icon_interactions",
+    title: PBC_LABELS.icon_interactions,
+    type: "expandable",
+    flatten: true,
+    iconPath: PBC_ICON_TAP,
+    schema: Object.keys(PBC_ACTION_DEFAULTS)
+      .filter((k) => k.startsWith("icon_"))
+      .map((k) => pbcActionField(k, PBC_ACTION_DEFAULTS[k])),
+  },
+  {
+    name: "card_interactions",
+    title: PBC_LABELS.card_interactions,
+    type: "expandable",
+    flatten: true,
+    iconPath: PBC_ICON_CARD,
+    schema: Object.keys(PBC_ACTION_DEFAULTS)
+      .filter((k) => !k.startsWith("icon_"))
+      .map((k) => pbcActionField(k, PBC_ACTION_DEFAULTS[k])),
+  },
 ];
+
+// ha-form wird von HA nachgeladen; ggf. über den Editor einer eingebauten Karte anstoßen
+let pbcFormLoading = null;
+function pbcLoadHaForm() {
+  if (customElements.get("ha-form")) return Promise.resolve();
+  if (!pbcFormLoading) {
+    pbcFormLoading = (async () => {
+      try {
+        const helpers = window.loadCardHelpers ? await window.loadCardHelpers() : null;
+        const tile = helpers && (await helpers.createCardElement({ type: "tile", entity: "sun.sun" }));
+        if (tile && tile.constructor.getConfigElement) await tile.constructor.getConfigElement();
+      } catch (e) { /* ignorieren, unten wird trotzdem gewartet */ }
+      await Promise.race([
+        customElements.whenDefined("ha-form"),
+        new Promise((r) => setTimeout(r, 5000)),
+      ]);
+    })();
+  }
+  return pbcFormLoading;
+}
 
 class PlaybulbCandleCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = config;
+    this._config = pbcMigrate(config || {});
     this._render();
   }
+
   set hass(hass) {
     this._hass = hass;
     if (this._form) this._form.hass = hass;
+    else this._render();
   }
+
+  connectedCallback() { this._render(); }
+
   _render() {
+    if (!this._config) return;
+    if (!customElements.get("ha-form")) {
+      pbcLoadHaForm().then(() => { if (customElements.get("ha-form")) this._render(); });
+      return;
+    }
     if (!this._form) {
       this._form = document.createElement("ha-form");
-      this._form.computeLabel = (s) => PBC_LABELS[s.name] || s.name;
+      this._form.computeLabel = (s) => PBC_LABELS[s.name] || s.title || s.name;
+      this._form.computeHelper = (s) => PBC_HELPERS[s.name];
       this._form.addEventListener("value-changed", (ev) => {
+        const config = { ...ev.detail.value };
+        Object.keys(config).forEach((k) => config[k] === undefined && delete config[k]);
         this.dispatchEvent(new CustomEvent("config-changed", {
-          detail: { config: ev.detail.value }, bubbles: true, composed: true,
+          detail: { config }, bubbles: true, composed: true,
         }));
       });
       this.appendChild(this._form);
     }
-    this._form.hass = this._hass;
+    if (this._hass) this._form.hass = this._hass;
     this._form.schema = PBC_SCHEMA;
-    this._form.data = {
-      show_name: true, show_state: true, show_brightness: true,
-      show_effects: true, show_color_picker: true, tap_action: "toggle",
-      ...this._config,
-    };
+    // Aktionen ohne Standardwert lassen: der Auswähler zeigt dann "Standard (…)"
+    this._form.data = { ...PBC_DEFAULTS, white_color: PBC_WARM_WHITE, ...this._config };
   }
 }
 

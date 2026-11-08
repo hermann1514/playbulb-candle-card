@@ -2,7 +2,9 @@
 
 Lovelace-Karte für MIPOW Playbulb Candle (Integration `playbulb_candle`). Die Lampe wird als SVG in der aktuellen Farbe dargestellt (RGB + Weißkanal, Helligkeit als Leuchtstärke). Die Effekte Kerzenlicht, Pulsieren, Blitz und Regenbogen werden animiert.
 
-Bedienung im Home-Assistant-Standardstil: Tippen auf die Kerze schaltet ein/aus, darunter ein Helligkeitsregler wie bei der Kachel-Karte, ein Farbrad wie im Detail-Dialog (Mitte = Weiß) und die Effekt-Auswahl.
+Bedienung im Home-Assistant-Standardstil: Helligkeitsregler wie bei der Kachel-Karte, Farbrad wie im Detail-Dialog (Mitte = Weiß) und Effekt-Auswahl. Tippen, Doppeltippen und Halten lassen sich für die Lampe und für die Karte getrennt belegen, wie bei den HA-Standardkarten.
+
+**Alle Optionen sind im visuellen Karten-Editor einstellbar.** YAML ist nicht nötig.
 
 ## Installation (HACS)
 
@@ -18,13 +20,56 @@ type: custom:playbulb-candle-card
 entity: light.playbulb_candle
 ```
 
+### Allgemein und Anzeige
+
 | Option | Standard | Beschreibung |
 |---|---|---|
 | `entity` | – | Licht-Entität (Pflicht) |
 | `name` | Friendly Name | Anzeigename |
-| `tap_action` | `toggle` | `toggle` oder `more-info` |
-| `show_name` / `show_state` | `true` | Texte unter der Lampe |
+| `layout` | `vertical` | `vertical` = große Lampe, `horizontal` = kompakt (kleine Lampe neben Name und Status, spart auf dem Handy viel Höhe) |
+| `show_name` / `show_state` | `true` | Name bzw. Status anzeigen |
 | `show_brightness` | `true` | Helligkeitsregler |
-| `show_effects` | `true` | Effekt-Auswahl |
 | `show_color_picker` | `true` | Farbrad |
-| `white_color` | `[255,196,120]` | Farbton des Weißkanals für die Darstellung |
+| `show_effects` | `true` | Effekt-Auswahl |
+| `white_color` | `[255,196,120]` | Farbton, in dem der Weißkanal dargestellt wird (nur Anzeige) |
+
+### Aktionen
+
+Die Werte sind normale Home-Assistant-Aktionen (`more-info`, `toggle`, `navigate`, `url`, `perform-action`, `assist`, `none`, jeweils auch mit `confirmation`).
+
+| Option | Standard | Wirkt auf |
+|---|---|---|
+| `icon_tap_action` | `toggle` | Tippen auf die Lampe |
+| `icon_hold_action` | `more-info` | Halten der Lampe |
+| `icon_double_tap_action` | `none` | Doppeltippen auf die Lampe |
+| `tap_action` | `none` | Tippen auf die Kartenfläche |
+| `hold_action` | `none` | Halten der Kartenfläche |
+| `double_tap_action` | `none` | Doppeltippen auf die Kartenfläche |
+
+Die Kartenaktionen gelten nur für die freie Kartenfläche (Name, Status, Hintergrund). Regler, Farbrad und Effekt-Auswahl lösen keine Kartenaktion aus. Hat die Lampe keine eigene Aktion (alle `none`), gehört sie zur Kartenfläche.
+
+Beispiel:
+
+```yaml
+type: custom:playbulb-candle-card
+entity: light.playbulb_candle
+layout: horizontal
+show_color_picker: false
+icon_double_tap_action:
+  action: perform-action
+  perform_action: light.turn_on
+  target:
+    entity_id: light.playbulb_candle
+  data:
+    effect: Kerzenlicht
+tap_action:
+  action: more-info
+```
+
+### Umstieg von Version 1.3 und älter
+
+Früher war `tap_action: toggle` bzw. `tap_action: more-info` ein einfacher Text und galt für die Lampe. Diese Schreibweise wird automatisch als `icon_tap_action` übernommen. Beim nächsten Speichern im Editor wird die Konfiguration auf das neue Format umgestellt.
+
+## Layout
+
+In der Sections-Ansicht nimmt die Karte standardmäßig die volle Abschnittsbreite ein, die Höhe richtet sich nach dem Inhalt. Breite und Höhe lassen sich im Editor unter *Layout* ändern. Bei fester Höhe bleibt der Inhalt innerhalb der Karte und überdeckt keine Nachbarkarten.

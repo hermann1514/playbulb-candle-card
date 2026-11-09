@@ -13,7 +13,7 @@
  *   tap_action:        { action: none }
  */
 
-const PBC_VERSION = "1.4.0";
+const PBC_VERSION = "1.5.0";
 const PBC_WARM_WHITE = [255, 196, 120]; // Farbton des Weißkanals der Kerze
 const PBC_HOLD_MS = 500;   // ab dieser Dauer gilt ein Druck als "Halten"
 const PBC_DOUBLE_MS = 250; // Wartezeit auf den zweiten Tipp
@@ -124,6 +124,11 @@ function pbcGestures(el, { canHold, canDouble, ignore, onAction }) {
     onAction("tap");
   });
 }
+
+// mdi:creation (Effekt-Symbol wie im HA-Detail-Dialog)
+const PBC_ICON_FX =
+  "M19,1L17.74,3.75L15,5L17.74,6.26L19,9L20.25,6.26L23,5L20.25,3.75M9,4L6.5,9.5L1,12L6.5,14.5L9,20" +
+  "L11.5,14.5L17,12L11.5,9.5M19,15L17.74,17.74L15,19L17.74,20.25L19,23L20.25,20.25L23,19L20.25,17.74";
 
 const PBC_STYLE = `
   :host { display: block; height: 100%; }
@@ -248,32 +253,66 @@ const PBC_STYLE = `
   .wheel.nomk .mk { display: none; }
   .wheel.disabled { pointer-events: none; opacity: .5; }
 
-  /* --- Effekt: Stil wie ha-select (filled) --- */
-  .sel {
-    position: relative; box-sizing: border-box;
-    background: var(--input-fill-color, color-mix(in srgb, var(--primary-text-color, #000) 6%, transparent));
-    border-radius: 4px 4px 0 0;
-    border-bottom: 1px solid var(--input-idle-line-color, rgba(0,0,0,.42));
+  /* --- Effekt: Stil wie im HA-Detail-Dialog (ha-control-select-menu) --- */
+  .eff { align-self: center; max-width: 100%; }
+  .eff-btn {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    box-sizing: border-box; min-width: 160px; max-width: 100%; height: 56px;
+    padding: 0 10px 0 16px; margin: 0; border: none; border-radius: 12px;
+    font: inherit; text-align: left; color: var(--primary-text-color);
+    background: color-mix(in srgb, var(--primary-text-color, #000) 8%, transparent);
+    cursor: pointer; outline: none; overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color .18s ease;
   }
-  .sel:focus-within { border-bottom: 2px solid var(--primary-color, #03a9f4); }
-  .sel label {
-    position: absolute; left: 16px; top: 8px; font-size: 12px; line-height: 16px;
-    color: var(--secondary-text-color); pointer-events: none;
+  .eff-btn:hover { background: color-mix(in srgb, var(--primary-text-color, #000) 12%, transparent); }
+  .eff-btn:focus-visible { box-shadow: 0 0 0 2px var(--primary-color, #03a9f4); }
+  .eff-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--primary-text-color, #000) 14%, transparent); }
+  .eff-btn:disabled { cursor: default; opacity: .5; }
+  .eff-btn:disabled:hover { background: color-mix(in srgb, var(--primary-text-color, #000) 8%, transparent); }
+  .eff-btn svg { flex: none; fill: currentColor; }
+  .eff-ic { width: 24px; height: 24px; }
+  .eff-arrow { width: 20px; height: 20px; color: var(--secondary-text-color); transition: transform .18s ease; }
+  .eff-btn[aria-expanded="true"] .eff-arrow { transform: rotate(180deg); }
+  .eff-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .eff-lbl { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: .1px; }
+  .eff-val {
+    font-size: 12px; line-height: 16px; color: var(--secondary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .sel:focus-within label { color: var(--primary-color, #03a9f4); }
-  .sel::after {
-    content: ""; position: absolute; right: 16px; top: 50%; margin-top: -2px;
-    border: 5px solid transparent; border-top-color: var(--secondary-text-color);
-    border-bottom: 0; pointer-events: none;
+  .eff-val:empty { display: none; }
+
+  .eff-menu {
+    position: fixed; inset: auto; margin: 0; box-sizing: border-box;
+    flex-direction: column; gap: 2px; padding: 4px; overflow-y: auto; overscroll-behavior: contain;
+    min-width: 200px; z-index: 1000;
+    color: var(--primary-text-color);
+    background: var(--card-background-color, var(--ha-card-background, #fff));
+    border: 1px solid var(--divider-color, rgba(0,0,0,.12)); border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   }
-  .sel select {
-    display: block; width: 100%; height: 56px; padding: 22px 40px 6px 16px; margin: 0;
-    font: inherit; font-size: 16px; color: var(--primary-text-color);
-    background: transparent; border: none; outline: none; cursor: pointer;
-    -webkit-appearance: none; appearance: none;
+  .eff-menu:not(.open) { display: none; }
+  .eff-menu.open { display: flex; animation: pbc-menu-in .14s ease-out; }
+  .eff-menu.up { transform-origin: 50% 100%; }
+  .eff-menu.down { transform-origin: 50% 0; }
+  @keyframes pbc-menu-in { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+  .eff-item {
+    display: flex; align-items: center; gap: 16px; flex: none;
+    min-height: 40px; padding: 0 16px; border-radius: 8px;
+    font-size: 14px; line-height: 20px; cursor: pointer; outline: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
-  .sel select option { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
-  .sel select:disabled { cursor: default; opacity: .6; }
+  .eff-item::before {
+    content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--secondary-text-color); transition: background-color .12s ease, transform .12s ease;
+  }
+  .eff-item:hover { background: color-mix(in srgb, var(--primary-text-color, #000) 8%, transparent); }
+  .eff-item:focus-visible { box-shadow: inset 0 0 0 2px var(--primary-text-color); }
+  .eff-item[aria-selected="true"] {
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
+    color: var(--primary-color, #03a9f4); font-weight: 500;
+  }
+  .eff-item[aria-selected="true"]::before { background: var(--primary-color, #03a9f4); transform: scale(1.35); }
   .hidden { display: none !important; }
 `;
 
@@ -458,7 +497,7 @@ class PlaybulbCandleCard extends HTMLElement {
   }
 
   connectedCallback() { if (this._built) this._update(); }
-  disconnectedCallback() { this._stopRainbow(); }
+  disconnectedCallback() { this._stopRainbow(); this._closeEff(false); }
 
   _isSet(key) {
     const a = this._config[key];
@@ -501,9 +540,17 @@ class PlaybulbCandleCard extends HTMLElement {
             <div class="mk"></div>
           </div>` : ""}
           ${c.show_effects ? `
-          <div class="sel ctl" id="effrow">
-            <label for="effect">Effekt</label>
-            <select id="effect"></select>
+          <div class="eff ctl" id="effrow">
+            <button class="eff-btn" id="effect" type="button"
+                    aria-haspopup="listbox" aria-expanded="false">
+              <svg class="eff-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="${PBC_ICON_FX}"/></svg>
+              <span class="eff-txt">
+                <span class="eff-lbl">Effekt</span>
+                <span class="eff-val" id="effval"></span>
+              </span>
+              <svg class="eff-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7,10L12,15L17,10H7Z"/></svg>
+            </button>
+            <div class="eff-menu" id="effmenu" role="listbox" aria-label="Effekt" popover="manual"></div>
           </div>` : ""}
         </div>
       </ha-card>`;
@@ -519,7 +566,11 @@ class PlaybulbCandleCard extends HTMLElement {
     this._elBtip = $("btip");
     this._elWheel = $("wheel");
     this._elEffect = $("effect");
+    this._elEffVal = $("effval");
+    this._elEffMenu = $("effmenu");
     this._elEffRow = $("effrow");
+    this._effList = [];
+    this._effCur = null;
     this._effectKey = "";
     this._rootClass = "";
     this._bVal = 0;
@@ -547,11 +598,7 @@ class PlaybulbCandleCard extends HTMLElement {
     }
     if (this._elBright) this._bindBrightness();
     if (this._elWheel) this._bindWheel();
-    if (this._elEffect) {
-      this._elEffect.addEventListener("change", () => {
-        this._call("turn_on", { effect: this._elEffect.value });
-      });
-    }
+    if (this._elEffect) this._bindEffect();
     this._built = true;
   }
 
@@ -572,6 +619,126 @@ class PlaybulbCandleCard extends HTMLElement {
     this.dispatchEvent(new CustomEvent("hass-action", {
       bubbles: true, composed: true, detail: { config: conf, action },
     }));
+  }
+
+  /* ---- Effekt-Menü (wie ha-control-select-menu im Detail-Dialog) ---- */
+  _bindEffect() {
+    const btn = this._elEffect;
+    const menu = this._elEffMenu;
+    btn.addEventListener("click", () => {
+      if (this._effOpen) this._closeEff(true);
+      else this._openEff();
+    });
+    btn.addEventListener("keydown", (ev) => {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        this._openEff();
+      }
+    });
+    menu.addEventListener("click", (ev) => {
+      const item = ev.composedPath().find((n) => n.classList && n.classList.contains("eff-item"));
+      if (item) this._pickEff(item);
+    });
+    menu.addEventListener("keydown", (ev) => {
+      const items = [...menu.children];
+      if (!items.length) return;
+      const i = items.indexOf(this.shadowRoot.activeElement);
+      let n = null;
+      if (ev.key === "ArrowDown") n = (i + 1) % items.length;
+      else if (ev.key === "ArrowUp") n = (i - 1 + items.length) % items.length;
+      else if (ev.key === "Home") n = 0;
+      else if (ev.key === "End") n = items.length - 1;
+      else if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        if (i >= 0) this._pickEff(items[i]);
+        return;
+      } else if (ev.key === "Escape" || ev.key === "Tab") {
+        ev.preventDefault();
+        this._closeEff(true);
+        return;
+      } else return;
+      ev.preventDefault();
+      items[n].focus();
+    });
+    // Schließen bei Klick außerhalb, Scrollen (außer im Menü) und Größenänderung
+    this._effOutside = (ev) => {
+      const p = ev.composedPath();
+      if (!p.includes(menu) && !p.includes(btn)) this._closeEff(false);
+    };
+    this._effScroll = (ev) => { if (ev.target !== menu) this._closeEff(false); };
+    this._effResize = () => this._closeEff(false);
+  }
+
+  _openEff() {
+    if (this._effOpen || this._unavail || !this._effList.length) return;
+    const btn = this._elEffect;
+    const menu = this._elEffMenu;
+    this._effOpen = true;
+    btn.setAttribute("aria-expanded", "true");
+    menu.classList.add("open");
+    if (menu.showPopover) { try { menu.showPopover(); } catch (e) { /* bereits offen */ } }
+
+    // Position: unter dem Button, bei zu wenig Platz darüber; im Viewport halten
+    const r = btn.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight, gap = 4, edge = 8;
+    const w = Math.min(Math.max(r.width, 200), vw - 2 * edge);
+    menu.style.width = w + "px";
+    menu.style.maxHeight = "";
+    const h = menu.scrollHeight + 2;
+    const below = vh - r.bottom - gap - edge;
+    const above = r.top - gap - edge;
+    const up = h > below && above > below;
+    const maxH = Math.max(80, up ? above : below);
+    menu.style.maxHeight = maxH + "px";
+    const mh = Math.min(h, maxH);
+    menu.style.top = (up ? r.top - gap - mh : r.bottom + gap) + "px";
+    menu.style.left = pbcClamp(r.left + (r.width - w) / 2, edge, vw - w - edge) + "px";
+    menu.classList.toggle("up", up);
+    menu.classList.toggle("down", !up);
+
+    const sel = menu.querySelector('[aria-selected="true"]') || menu.firstElementChild;
+    if (sel) {
+      sel.focus({ preventScroll: true });
+      sel.scrollIntoView({ block: "nearest" });
+    }
+    window.addEventListener("pointerdown", this._effOutside, true);
+    window.addEventListener("scroll", this._effScroll, true);
+    window.addEventListener("resize", this._effResize);
+  }
+
+  _closeEff(refocus) {
+    if (!this._effOpen) return;
+    this._effOpen = false;
+    const menu = this._elEffMenu;
+    window.removeEventListener("pointerdown", this._effOutside, true);
+    window.removeEventListener("scroll", this._effScroll, true);
+    window.removeEventListener("resize", this._effResize);
+    if (menu) {
+      if (menu.hidePopover) { try { menu.hidePopover(); } catch (e) { /* bereits zu */ } }
+      menu.classList.remove("open");
+    }
+    if (this._elEffect) {
+      this._elEffect.setAttribute("aria-expanded", "false");
+      if (refocus) this._elEffect.focus();
+    }
+  }
+
+  _pickEff(item) {
+    const effect = this._effList[Number(item.dataset.i)];
+    this._closeEff(true);
+    if (effect == null) return;
+    this._effCur = effect;
+    this._markEff();
+    this._call("turn_on", { effect });
+  }
+
+  // Auswahl im Menü und Wert im Button anzeigen
+  _markEff() {
+    const cur = this._effCur;
+    [...this._elEffMenu.children].forEach((el) => {
+      el.setAttribute("aria-selected", String(this._effList[Number(el.dataset.i)] === cur));
+    });
+    this._elEffVal.textContent = cur || "";
   }
 
   /* ---- Helligkeitsregler ---- */
@@ -824,20 +991,26 @@ class PlaybulbCandleCard extends HTMLElement {
       const key = list.join("|");
       if (key !== this._effectKey) {
         this._effectKey = key;
-        this._elEffect.innerHTML = "";
-        list.forEach((e) => {
-          const o = document.createElement("option");
-          o.value = e; o.textContent = e;
-          this._elEffect.appendChild(o);
+        this._effList = list;
+        this._closeEff(false);
+        this._elEffMenu.innerHTML = "";
+        list.forEach((e, i) => {
+          const o = document.createElement("div");
+          o.className = "eff-item";
+          o.setAttribute("role", "option");
+          o.tabIndex = -1;
+          o.dataset.i = i;
+          o.textContent = e;
+          this._elEffMenu.appendChild(o);
         });
       }
       this._elEffRow.classList.toggle("hidden", list.length === 0);
-      if (this.shadowRoot.activeElement !== this._elEffect) {
-        let idx = list.indexOf(a.effect);
-        if (idx < 0) idx = list.findIndex((e) => /^(kein|none|no effect|off|aus)/i.test(e));
-        this._elEffect.selectedIndex = idx;
-      }
+      let cur = list.includes(a.effect) ? a.effect : null;
+      if (cur == null) cur = list.find((e) => /^(kein|none|no effect|off|aus)/i.test(e)) || null;
+      this._effCur = cur;
+      this._markEff();
       this._elEffect.disabled = unavail;
+      if (unavail || list.length === 0) this._closeEff(false);
     }
   }
 

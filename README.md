@@ -2,7 +2,7 @@
 
 Lovelace-Karte für MIPOW Playbulb Candle (Integration `playbulb_candle`). Die Lampe wird als SVG in der aktuellen Farbe dargestellt (RGB + Weißkanal, Helligkeit als Leuchtstärke). Die Effekte Kerzenlicht, Pulsieren, Blitz und Regenbogen werden animiert.
 
-Bedienung im Home-Assistant-Standardstil: Helligkeitsregler wie bei der Kachel-Karte, Farbrad wie im Detail-Dialog (Mitte = Weiß) und Effekt-Auswahl. Tippen, Doppeltippen und Halten lassen sich für die Lampe und für die Karte getrennt belegen, wie bei den HA-Standardkarten.
+Bedienung im Home-Assistant-Standardstil: Helligkeitsregler wie bei der Kachel-Karte, Farbrad wie im Detail-Dialog (Mitte = Weiß) und Effekt-Auswahl als Aufklapp-Menü wie im Detail-Dialog. Tippen, Doppeltippen und Halten lassen sich für die Lampe und für die Karte getrennt belegen, wie bei den HA-Standardkarten.
 
 **Alle Optionen sind im visuellen Karten-Editor einstellbar.** YAML ist nicht nötig.
 

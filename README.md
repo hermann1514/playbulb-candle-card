@@ -31,7 +31,13 @@ entity: light.playbulb_candle
 | `show_brightness` | `true` | Helligkeitsregler |
 | `show_color_picker` | `true` | Farbrad |
 | `show_effects` | `true` | Effekt-Auswahl |
+| `show_battery` | `true` | Batteriesymbol mit Prozentwert in der Statuszeile |
+| `battery_entity` | automatisch | Batterie-Sensor. Leer lassen: Die Karte sucht den Sensor mit `device_class: battery` am Gerät der Lampe |
+| `battery_warning` | `50` | Bis zu diesem Wert (einschließlich) ist das Symbol gelb |
+| `battery_critical` | `20` | Bis zu diesem Wert (einschließlich) ist das Symbol rot |
 | `white_color` | `[255,196,120]` | Farbton, in dem der Weißkanal dargestellt wird (nur Anzeige) |
+
+Batteriesymbol mit den Standardwerten: **grün** über 50 %, **gelb** von 21 bis 50 %, **rot** ab 20 % und weniger. Die Füllung des Symbols zeigt den Ladestand. Wird kein Batterie-Sensor gefunden, bleibt das Symbol ausgeblendet. Ist der Sensor nicht erreichbar, zeigt die Karte ein leeres Symbol mit „–“.
 
 ### Aktionen
 

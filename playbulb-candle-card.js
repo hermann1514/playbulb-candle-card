@@ -8,12 +8,16 @@
  *   type: custom:playbulb-candle-card
  *   entity: light.playbulb_candle
  *   layout: vertical              # vertical (Standard) | horizontal (kompakt)
+ *   show_battery: true            # Batteriesymbol in der Statuszeile
+ *   battery_entity: sensor.xyz    # leer = automatisch über das Gerät der Lampe
+ *   battery_warning: 50           # ab hier (≤) gelb
+ *   battery_critical: 20          # ab hier (≤) rot
  *   icon_tap_action:   { action: toggle }
  *   icon_hold_action:  { action: more-info }
  *   tap_action:        { action: none }
  */
 
-const PBC_VERSION = "1.5.0";
+const PBC_VERSION = "1.6.0";
 const PBC_WARM_WHITE = [255, 196, 120]; // Farbton des Weißkanals der Kerze
 const PBC_HOLD_MS = 500;   // ab dieser Dauer gilt ein Druck als "Halten"
 const PBC_DOUBLE_MS = 250; // Wartezeit auf den zweiten Tipp
@@ -26,7 +30,19 @@ const PBC_DEFAULTS = {
   show_brightness: true,
   show_color_picker: true,
   show_effects: true,
+  show_battery: true,
+  battery_warning: 50,
+  battery_critical: 20,
 };
+
+// Batteriesymbol (liegend): Innenraum für den Füllbalken
+const PBC_BATT_X = 2.5, PBC_BATT_W = 16;
+const PBC_BATT_SVG = `
+<svg viewBox="0 0 24 12" aria-hidden="true">
+  <rect x=".75" y=".75" width="19.5" height="10.5" rx="2.25" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <rect x="20.75" y="3.75" width="2.25" height="4.5" rx="1" fill="currentColor"/>
+  <rect class="batt-fill" id="battfill" x="${PBC_BATT_X}" y="2.5" width="0" height="7" rx="1"/>
+</svg>`;
 
 // Standardaktionen wie bei der HA-Button-Karte (Lampe) bzw. ohne Aktion (Karte)
 const PBC_ACTION_DEFAULTS = {
@@ -189,6 +205,23 @@ const PBC_STYLE = `
   .name { font-size: 1.1em; font-weight: 500; color: var(--primary-text-color); overflow-wrap: anywhere; }
   .state { font-size: .9em; color: var(--secondary-text-color); overflow-wrap: anywhere; }
 
+  /* --- Statuszeile mit Batteriesymbol --- */
+  .stline {
+    display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+    column-gap: 8px; row-gap: 2px; min-width: 0;
+  }
+  .stline .state { min-width: 0; }
+  .batt {
+    display: inline-flex; align-items: center; gap: 4px; flex: none;
+    font-size: .9em; line-height: 1; color: var(--secondary-text-color);
+    font-variant-numeric: tabular-nums;
+  }
+  .batt svg { display: block; width: 22px; height: 11px; aspect-ratio: auto; }
+  .batt-fill { fill: var(--bc, transparent); transition: fill .3s ease; }
+  .batt.good { --bc: var(--state-sensor-battery-high-color, var(--green-color, #4caf50)); }
+  .batt.mid  { --bc: var(--state-sensor-battery-medium-color, var(--yellow-color, #ffc107)); }
+  .batt.low  { --bc: var(--state-sensor-battery-low-color, var(--red-color, #f44336)); }
+
   /* --- Kompakt: kleine Lampe neben Name/Status --- */
   .lay-horizontal .head { flex-direction: row; gap: 12px; }
   .lay-horizontal .lampbox { width: 64px; flex: none; }
@@ -196,6 +229,7 @@ const PBC_STYLE = `
   .lay-horizontal .name, .lay-horizontal .state {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .lay-horizontal .stline { justify-content: flex-start; flex-wrap: nowrap; }
   .lay-horizontal .wheel { max-width: 200px; }
 
   /* --- Helligkeit: Stil wie ha-control-slider (Kachel-Feature) --- */
@@ -512,7 +546,8 @@ class PlaybulbCandleCard extends HTMLElement {
     const c = this._config;
     const lampAct = this._hasActions("icon_");
     const cardAct = this._hasActions("");
-    const showInfo = c.show_name || c.show_state;
+    const showInfo = c.show_name || c.show_state || c.show_battery;
+    const showLine = c.show_state || c.show_battery;
     this.shadowRoot.innerHTML = `
       <style>${PBC_STYLE}</style>
       <ha-card class="${cardAct ? "actionable" : ""} ${c.layout === "horizontal" ? "compact" : ""}"
@@ -524,7 +559,12 @@ class PlaybulbCandleCard extends HTMLElement {
             ${showInfo ? `
             <div class="info">
               ${c.show_name ? '<div class="name" id="name"></div>' : ""}
-              ${c.show_state ? '<div class="state" id="state"></div>' : ""}
+              ${showLine ? `
+              <div class="stline">
+                ${c.show_state ? '<div class="state" id="state"></div>' : ""}
+                ${c.show_battery ? `
+                <span class="batt hidden" id="batt" role="img">${PBC_BATT_SVG}<span id="battval"></span></span>` : ""}
+              </div>` : ""}
             </div>` : ""}
           </div>
           ${c.show_brightness ? `
@@ -569,6 +609,11 @@ class PlaybulbCandleCard extends HTMLElement {
     this._elEffVal = $("effval");
     this._elEffMenu = $("effmenu");
     this._elEffRow = $("effrow");
+    this._elBatt = $("batt");
+    this._elBattFill = $("battfill");
+    this._elBattVal = $("battval");
+    this._battKey = null;
+    this._battCls = "";
     this._effList = [];
     this._effCur = null;
     this._effectKey = "";
@@ -921,6 +966,7 @@ class PlaybulbCandleCard extends HTMLElement {
       this._setClass(`root unavail off lay-${this._config.layout}`);
       if (this._elName) this._elName.textContent = this._config.name || this._config.entity;
       if (this._elState) this._elState.textContent = "Entität nicht gefunden";
+      this._updateBattery();
       return;
     }
 
@@ -1012,6 +1058,64 @@ class PlaybulbCandleCard extends HTMLElement {
       this._elEffect.disabled = unavail;
       if (unavail || list.length === 0) this._closeEff(false);
     }
+    this._updateBattery();
+  }
+
+  /* ---- Batteriestand ---- */
+  // Batterie-Sensor: aus der Konfiguration oder automatisch über das Gerät der Lampe
+  _batteryEntity() {
+    const c = this._config;
+    if (c.battery_entity) return c.battery_entity;
+    const h = this._hass;
+    const reg = h.entities;
+    if (!reg) return null;
+    // Sensoren desselben Geräts nur neu suchen, wenn sich die Registry ändert
+    if (this._battKey !== reg) {
+      this._battKey = reg;
+      const dev = reg[c.entity] && reg[c.entity].device_id;
+      this._battCand = dev
+        ? Object.values(reg)
+            .filter((e) => e.device_id === dev && e.entity_id.startsWith("sensor."))
+            .map((e) => e.entity_id)
+        : [];
+    }
+    return this._battCand.find((id) => {
+      const s = h.states[id];
+      return s && s.attributes && s.attributes.device_class === "battery";
+    }) || null;
+  }
+
+  _updateBattery() {
+    const el = this._elBatt;
+    if (!el) return;
+    const id = this._hass.states[this._config.entity] ? this._batteryEntity() : null;
+    const s = id && this._hass.states[id];
+    if (!s) {
+      el.classList.add("hidden");
+      this._battCls = "";
+      return;
+    }
+    const v = parseFloat(s.state);
+    const ok = Number.isFinite(v);
+    const c = this._config;
+    const num = (x, d) => (x === "" || x == null || !Number.isFinite(Number(x)) ? d : Number(x));
+    const warn = num(c.battery_warning, PBC_DEFAULTS.battery_warning);
+    const crit = num(c.battery_critical, PBC_DEFAULTS.battery_critical);
+    const lvl = !ok ? "" : v <= crit ? "low" : v <= warn ? "mid" : "good";
+    const cls = "batt" + (lvl ? " " + lvl : "");
+    if (cls !== this._battCls) {
+      this._battCls = cls;
+      el.className = cls;
+    }
+    const p = ok ? pbcClamp(v, 0, 100) / 100 : 0;
+    // Bei fast leerer Batterie mindestens einen schmalen roten Strich zeigen
+    const w = ok ? Math.max(p * PBC_BATT_W, 1.5) : 0;
+    this._elBattFill.setAttribute("width", w.toFixed(2));
+    const txt = ok ? Math.round(v) + " %" : "–";
+    this._elBattVal.textContent = txt;
+    const label = "Batterie " + txt;
+    el.setAttribute("aria-label", label);
+    el.title = label;
   }
 
   _setClass(cls) {
@@ -1034,6 +1138,10 @@ const PBC_LABELS = {
   show_brightness: "Helligkeitsregler",
   show_color_picker: "Farbrad",
   show_effects: "Effekt-Auswahl",
+  show_battery: "Batteriestand",
+  battery_entity: "Batterie-Sensor (optional)",
+  battery_warning: "Gelb ab (%)",
+  battery_critical: "Rot ab (%)",
   white_color: "Farbe des Weißkanals",
   icon_interactions: "Interaktionen: Lampe",
   icon_tap_action: "Tippen auf die Lampe",
@@ -1049,6 +1157,8 @@ const PBC_HELPERS = {
   layout: "Kompakt: kleine Lampe neben Name und Status, braucht auf dem Handy deutlich weniger Höhe.",
   white_color: "Nur für die Anzeige: In diesem Farbton stellt die Karte den Weißkanal (W) der Kerze dar.",
   tap_action: "Gilt für die Kartenfläche außerhalb der Lampe und der Bedienelemente.",
+  battery_entity: "Leer lassen: Der Sensor wird automatisch über das Gerät der Lampe gefunden.",
+  battery_critical: "Grün über „Gelb ab“, gelb bis „Gelb ab“, rot bis „Rot ab“.",
 };
 
 // Material-Design-Icons (24×24) für die aufklappbaren Bereiche
@@ -1097,6 +1207,16 @@ const PBC_SCHEMA = [
           { name: "show_brightness", selector: { boolean: {} } },
           { name: "show_color_picker", selector: { boolean: {} } },
           { name: "show_effects", selector: { boolean: {} } },
+          { name: "show_battery", selector: { boolean: {} } },
+        ],
+      },
+      { name: "battery_entity", selector: { entity: { domain: "sensor", device_class: "battery" } } },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "battery_warning", selector: { number: { min: 0, max: 100, step: 1, mode: "box" } } },
+          { name: "battery_critical", selector: { number: { min: 0, max: 100, step: 1, mode: "box" } } },
         ],
       },
       { name: "white_color", selector: { color_rgb: {} } },
